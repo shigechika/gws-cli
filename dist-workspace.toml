@@ -33,6 +33,8 @@ package = "cli"
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Which actions to run on pull requests
 pr-run-mode = "plan"
+# Don't overwrite release.yml on `cargo dist init` (preserves custom npm registry config)
+allow-dirty = ["ci"]
 # The archive format to use for windows builds (defaults .zip)
 windows-archive = ".tar.gz"
 # The archive format to use for non-windows builds (defaults .tar.xz)
