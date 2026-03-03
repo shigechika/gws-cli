@@ -175,6 +175,20 @@ The `gws-shared` skill includes an `install` block so OpenClaw auto-installs the
 </details>
 
 
+## Gemini CLI Extension
+
+1. Authenticate the CLI first:
+   ```bash
+   gws setup
+   ```
+
+2. Install the extension into the Gemini CLI:
+   ```bash
+   gemini extensions install https://github.com/googleworkspace/cli
+   ```
+
+Installing this extension gives your Gemini CLI agent direct access to all `gws` commands and Google Workspace agent skills. Because `gws` handles its own authentication securely, you simply need to authenticate your terminal once prior to using the agent, and the extension will automatically inherit your credentials.
+
 ## Advanced Usage
 
 ### Multipart Uploads
