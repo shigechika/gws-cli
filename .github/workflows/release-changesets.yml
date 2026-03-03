@@ -30,6 +30,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GOOGLEWORKSPACE_BOT_TOKEN }}
 
       - uses: pnpm/action-setup@v4
 
@@ -42,6 +44,10 @@ jobs:
       - name: Install Dependencies
         run: pnpm install
 
+      - run: |
+          git config --global user.name "googleworkspace-bot"
+          git config --global user.email "googleworkspace-bot@google.com"
+
       - name: Create Release Pull Request or Tag
         id: changesets
         uses: changesets/action@v1
@@ -49,5 +55,6 @@ jobs:
           publish: pnpm changeset tag
           commit: 'chore: release versions'
           title: 'chore: release versions'
+          setupGitUser: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GOOGLEWORKSPACE_BOT_TOKEN }}
