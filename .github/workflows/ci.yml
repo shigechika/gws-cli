@@ -183,6 +183,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
+      - name: Disable Windows Defender scanning for cargo
+        if: runner.os == 'Windows'
+        run: |
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.rustup"
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}\target"
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
         env:
