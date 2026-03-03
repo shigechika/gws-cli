@@ -2,7 +2,10 @@
 
 A CLI that generates its entire command surface dynamically from Google Discovery Service JSON documents. Includes skills for AI agents.
 
-![Demo](docs/demo.gif)
+> [!IMPORTANT]
+> This project is currently under active development and is not yet ready for production use.
+
+![Demo](https://raw.githubusercontent.com/googleworkspace/cli/refs/heads/main/demo.gif)
 
 ## Install
 
