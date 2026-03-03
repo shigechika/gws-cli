@@ -54,7 +54,7 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: pnpm changeset tag
+          publish: pnpm run tag-release
           commit: 'chore: release versions'
           title: 'chore: release versions'
           setupGitUser: false
