@@ -1,13 +1,47 @@
-# gws
+<p align="center">
+  <img src="https://raw.githubusercontent.com/googleworkspace/cli/refs/heads/main/docs/logo.png" alt="gws logo" width="200">
+</p>
 
-**One CLI for all of Google Workspace.** Drive, Gmail, Calendar, Sheets, Docs, Chat, Admin — 24 services, 700+ API methods, zero boilerplate.
+<h1 align="center">gws</h1>
+
+<p align="center">
+  <strong>One CLI for all of Google Workspace — built for humans and AI agents.</strong><br>
+  Drive, Gmail, Calendar, and every Workspace API. Zero boilerplate. Structured JSON output. 40+ agent skills included.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@googleworkspace/cli"><img src="https://img.shields.io/npm/v/@googleworkspace/cli" alt="npm version"></a>
+  <a href="https://github.com/googleworkspace/cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/googleworkspace/cli" alt="license"></a>
+  <a href="https://github.com/googleworkspace/cli/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/googleworkspace/cli/ci.yml?branch=main&label=CI" alt="CI status"></a>
+  <a href="https://www.npmjs.com/package/@googleworkspace/cli"><img src="https://img.shields.io/npm/unpacked-size/@googleworkspace/cli" alt="install size"></a>
+</p>
+
+---
+
+```bash
+npm install -g @googleworkspace/cli
+```
+
+---
 
 `gws` doesn't ship a static list of commands. It reads Google's own [Discovery Service](https://developers.google.com/discovery) at runtime and builds its entire command surface dynamically. When Google adds an API endpoint, `gws` picks it up automatically.
 
 > [!IMPORTANT]
-> This project is under active development and is not yet ready for production use.
+> This project is under active development. Expect breaking changes as we march toward v1.0.
 
-![Demo](https://raw.githubusercontent.com/googleworkspace/cli/refs/heads/main/demo.gif)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/googleworkspace/cli/refs/heads/main/docs/demo.gif" alt="Demo">
+</p>
+
+## Contents
+
+- [Quick Start](#quick-start)
+- [Why gws?](#why-gws)
+- [Authentication](#authentication)
+- [AI Agent Skills](#ai-agent-skills)
+- [Advanced Usage](#advanced-usage)
+- [Architecture](#architecture)
+- [Development](#development)
 
 ## Quick Start
 

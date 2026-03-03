@@ -56,7 +56,7 @@ The CLI uses a **two-phase argument parsing** strategy:
 Demo recordings are generated with [VHS](https://github.com/charmbracelet/vhs) (`.tape` files).
 
 ```bash
-vhs demo.tape        # YouTube Short (portrait 1080×1920)
+vhs docs/demo.tape
 ```
 
 ### VHS quoting rules
