@@ -21,7 +21,8 @@
     "prepare": "lefthook install"
   },
   "publishConfig": {
-    "provenance": true
+    "provenance": true,
+    "registry": "https://wombat-dressing-room.appspot.com"
   },
   "engines": {
     "node": ">=18"
