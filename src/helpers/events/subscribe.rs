@@ -1,4 +1,30 @@
 use super::*;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Default, Builder)]
+#[builder(setter(into))]
+pub struct SubscribeConfig {
+    #[builder(default)]
+    target: Option<String>,
+    #[builder(default)]
+    event_types: Vec<String>,
+    #[builder(default)]
+    project: Option<ProjectId>,
+    #[builder(default)]
+    subscription: Option<SubscriptionName>,
+    #[builder(default = "10")]
+    max_messages: u32,
+    #[builder(default = "2")]
+    poll_interval: u64,
+    #[builder(default)]
+    once: bool,
+    #[builder(default)]
+    cleanup: bool,
+    #[builder(default)]
+    no_ack: bool,
+    #[builder(default)]
+    output_dir: Option<PathBuf>,
+}
 
 fn parse_subscribe_args(matches: &ArgMatches) -> Result<SubscribeConfig, GwsError> {
     let mut builder = SubscribeConfigBuilder::default();
@@ -22,6 +48,7 @@ fn parse_subscribe_args(matches: &ArgMatches) -> Result<SubscribeConfig, GwsErro
         builder.project(Some(ProjectId(project)));
     }
     if let Some(subscription) = matches.get_one::<String>("subscription") {
+        crate::validate::validate_resource_name(subscription)?;
         builder.subscription(Some(SubscriptionName(subscription.clone())));
     }
     if let Some(max_messages) = matches
@@ -40,7 +67,7 @@ fn parse_subscribe_args(matches: &ArgMatches) -> Result<SubscribeConfig, GwsErro
     builder.cleanup(matches.get_flag("cleanup"));
     builder.no_ack(matches.get_flag("no-ack"));
     if let Some(output_dir) = matches.get_one::<String>("output-dir") {
-        builder.output_dir(Some(output_dir.clone()));
+        builder.output_dir(Some(crate::validate::validate_safe_output_dir(output_dir)?));
     }
 
     let config = builder
@@ -96,7 +123,9 @@ pub(super) async fn handle_subscribe(
         } else {
             // Full setup: create Pub/Sub topic + subscription + Workspace Events subscription
             let target = config.target.clone().unwrap();
-            let project = config.project.clone().unwrap().0;
+            let project =
+                crate::validate::validate_resource_name(&config.project.clone().unwrap().0)?
+                    .to_string();
             let event_types_str: Vec<&str> =
                 config.event_types.iter().map(|s| s.as_str()).collect();
 
@@ -326,11 +355,11 @@ async fn pull_loop(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis())
                     .unwrap_or(0);
-                let path = format!("{dir}/{ts}_{file_counter}.json");
+                let path = dir.join(format!("{ts}_{file_counter}.json"));
                 if let Err(e) = std::fs::write(&path, &json_str) {
-                    eprintln!("Warning: failed to write {path}: {e}");
+                    eprintln!("Warning: failed to write {}: {e}", path.display());
                 } else {
-                    eprintln!("Wrote {path}");
+                    eprintln!("Wrote {}", path.display());
                 }
             } else {
                 println!(
@@ -512,6 +541,15 @@ mod tests {
             .arg(Arg::new("no-ack").long("no-ack").action(ArgAction::SetTrue))
             .arg(Arg::new("output-dir").long("output-dir"));
         cmd.try_get_matches_from(args).unwrap()
+    }
+
+    #[test]
+    fn test_parse_subscribe_args_invalid_output_dir() {
+        let matches = make_matches_subscribe(&["test", "--output-dir", "../../etc"]);
+        let result = parse_subscribe_args(&matches);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("outside the current directory"));
     }
 
     #[test]

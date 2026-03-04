@@ -5,7 +5,7 @@ pub(super) async fn handle_watch(
     matches: &ArgMatches,
     sanitize_config: &crate::helpers::modelarmor::SanitizeConfig,
 ) -> Result<(), GwsError> {
-    let config = parse_watch_args(matches);
+    let config = parse_watch_args(matches)?;
 
     if let Some(ref dir) = config.output_dir {
         std::fs::create_dir_all(dir).context("Failed to create output dir")?;
@@ -37,8 +37,9 @@ pub(super) async fn handle_watch(
 
         let suffix = format!("{:08x}", rand::random::<u32>());
         let topic = if let Some(ref t) = config.topic {
-            t.clone()
+            crate::validate::validate_resource_name(t)?.to_string()
         } else {
+            let project = crate::validate::validate_resource_name(&project)?;
             let t = format!("projects/{project}/topics/gws-gmail-watch-{suffix}");
             // Create Pub/Sub topic
             eprintln!("Creating Pub/Sub topic: {t}");
@@ -97,6 +98,7 @@ pub(super) async fn handle_watch(
             t
         };
 
+        let project = crate::validate::validate_resource_name(&project)?;
         let sub = format!("projects/{project}/subscriptions/gws-gmail-watch-{suffix}");
 
         // 3. Create Pub/Sub subscription
@@ -207,14 +209,15 @@ pub(super) async fn handle_watch(
             eprintln!("\nCleaning up Pub/Sub resources...");
             let _ = client
                 .delete(format!(
-                    "https://pubsub.googleapis.com/v1/{pubsub_subscription}"
+                    "https://pubsub.googleapis.com/v1/{}",
+                    pubsub_subscription
                 ))
                 .bearer_auth(&pubsub_token)
                 .send()
                 .await;
             if let Some(ref topic) = topic_name {
                 let _ = client
-                    .delete(format!("https://pubsub.googleapis.com/v1/{topic}"))
+                    .delete(format!("https://pubsub.googleapis.com/v1/{}", topic))
                     .bearer_auth(&pubsub_token)
                     .send()
                     .await;
@@ -227,9 +230,9 @@ pub(super) async fn handle_watch(
                 pubsub_subscription
             );
             if let Some(ref topic) = topic_name {
-                eprintln!("Pub/Sub topic: {topic}");
+                eprintln!("Pub/Sub topic: {}", topic);
             }
-            eprintln!("Pub/Sub subscription: {pubsub_subscription}");
+            eprintln!("Pub/Sub subscription: {}", pubsub_subscription);
             eprintln!("Note: Gmail watch expires after 7 days. Re-run +watch to renew.");
         }
     }
@@ -293,7 +296,7 @@ async fn watch_pull_loop(
                 gmail_token,
                 *last_history_id,
                 &config.format,
-                config.output_dir.as_deref(),
+                config.output_dir.as_ref(),
                 sanitize_config,
             )
             .await?;
@@ -375,7 +378,7 @@ async fn fetch_and_output_messages(
     gmail_token: &str,
     start_history_id: u64,
     msg_format: &str,
-    output_dir: Option<&str>,
+    output_dir: Option<&std::path::PathBuf>,
     sanitize_config: &crate::helpers::modelarmor::SanitizeConfig,
 ) -> Result<(), GwsError> {
     let url = format!(
@@ -430,11 +433,14 @@ async fn fetch_and_output_messages(
                 let json_str =
                     serde_json::to_string_pretty(&full_msg).unwrap_or_else(|_| "{}".to_string());
                 if let Some(dir) = output_dir {
-                    let path = format!("{dir}/{msg_id}.json");
+                    let path = dir.join(format!(
+                        "{}.json",
+                        crate::validate::encode_path_segment(&msg_id)
+                    ));
                     if let Err(e) = std::fs::write(&path, &json_str) {
-                        eprintln!("Warning: failed to write {path}: {e}");
+                        eprintln!("Warning: failed to write {}: {e}", path.display());
                     } else {
-                        eprintln!("Wrote {path}");
+                        eprintln!("Wrote {}", path.display());
                     }
                 } else {
                     println!(
@@ -499,7 +505,7 @@ fn extract_message_ids_from_history(history_body: &Value) -> Vec<String> {
     result
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct WatchConfig {
     project: Option<String>,
     subscription: Option<String>,
@@ -510,11 +516,22 @@ struct WatchConfig {
     format: String,
     once: bool,
     cleanup: bool,
-    output_dir: Option<String>,
+    output_dir: Option<std::path::PathBuf>,
 }
 
-fn parse_watch_args(matches: &ArgMatches) -> WatchConfig {
-    WatchConfig {
+fn parse_watch_args(matches: &ArgMatches) -> Result<WatchConfig, GwsError> {
+    let format_str = matches
+        .get_one::<String>("msg-format")
+        .map(|s| s.as_str())
+        .unwrap_or("full");
+    // Note: msg-format is already constrained by clap's value_parser
+
+    let output_dir = matches
+        .get_one::<String>("output-dir")
+        .map(|dir| crate::validate::validate_safe_output_dir(dir))
+        .transpose()?;
+
+    Ok(WatchConfig {
         project: matches.get_one::<String>("project").cloned(),
         subscription: matches.get_one::<String>("subscription").cloned(),
         topic: matches.get_one::<String>("topic").cloned(),
@@ -527,15 +544,11 @@ fn parse_watch_args(matches: &ArgMatches) -> WatchConfig {
             .get_one::<String>("poll-interval")
             .and_then(|s| s.parse().ok())
             .unwrap_or(5),
-        format: matches
-            .get_one::<String>("msg-format")
-            .map(|s| s.as_str())
-            .unwrap_or("full")
-            .to_string(),
+        format: format_str.to_string(),
         once: matches.get_flag("once"),
         cleanup: matches.get_flag("cleanup"),
-        output_dir: matches.get_one::<String>("output-dir").cloned(),
-    }
+        output_dir,
+    })
 }
 
 #[cfg(test)]
@@ -623,7 +636,34 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_watch_args() {
+    fn test_parse_watch_args_invalid_format_rejected_by_clap() {
+        // msg-format is constrained by clap's value_parser, so invalid values
+        // are rejected at the clap level before parse_watch_args is called.
+        // Verify the real command definition rejects bad formats:
+        let helper = super::super::GmailHelper;
+        let doc = crate::discovery::RestDescription::default();
+        let cmd = helper.inject_commands(Command::new("test"), &doc);
+        let watch_cmd = cmd
+            .get_subcommands()
+            .find(|c| c.get_name() == "+watch")
+            .unwrap()
+            .clone();
+        let result =
+            watch_cmd.try_get_matches_from(vec!["+watch", "--msg-format", "invalid-format"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_watch_args_invalid_output_dir() {
+        let matches = make_matches_watch(&["test", "--output-dir", "../../etc"]);
+        let result = parse_watch_args(&matches);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("outside the current directory"));
+    }
+
+    #[test]
+    fn test_parse_watch_args_full() {
         let matches = make_matches_watch(&[
             "test",
             "--project",
@@ -634,7 +674,7 @@ mod tests {
             "20",
             "--once",
         ]);
-        let config = parse_watch_args(&matches);
+        let config = parse_watch_args(&matches).unwrap();
         assert_eq!(config.project.unwrap(), "p1");
         assert_eq!(config.subscription.unwrap(), "s1");
         assert_eq!(config.max_messages, 20);
@@ -651,7 +691,7 @@ mod tests {
     #[test]
     fn test_parse_watch_args_defaults() {
         let matches = make_matches_watch(&["test"]);
-        let config = parse_watch_args(&matches);
+        let config = parse_watch_args(&matches).unwrap();
         assert_eq!(config.project, None);
         assert_eq!(config.subscription, None);
         assert_eq!(config.max_messages, 10);
@@ -670,7 +710,7 @@ mod tests {
             "--poll-interval",
             "invalid",
         ]);
-        let config = parse_watch_args(&matches);
+        let config = parse_watch_args(&matches).unwrap();
         // Should fallback to defaults
         assert_eq!(config.max_messages, 10);
         assert_eq!(config.poll_interval, 5);

@@ -228,9 +228,15 @@ TIPS:
 // Handlers
 // ---------------------------------------------------------------------------
 
-async fn get_json(client: &reqwest::Client, url: &str, token: &str) -> Result<Value, GwsError> {
+async fn get_json(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    query: &[(&str, &str)],
+) -> Result<Value, GwsError> {
     let resp = client
         .get(url)
+        .query(query)
         .bearer_auth(token)
         .send()
         .await
@@ -279,14 +285,24 @@ async fn handle_standup_report(matches: &ArgMatches) -> Result<(), GwsError> {
     let time_max = epoch_to_rfc3339(day_end);
 
     // Fetch today's events
-    let events_url = format!(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={}&timeMax={}&singleEvents=true&orderBy=startTime&maxResults=25",
-        urlencoded(&time_min),
-        urlencoded(&time_max),
-    );
-    let events_json = get_json(&client, &events_url, &token)
-        .await
-        .unwrap_or(json!({}));
+    let events_json = get_json(
+        &client,
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        &token,
+        &[
+            ("timeMin", time_min.as_str()),
+            ("timeMax", time_max.as_str()),
+            ("singleEvents", "true"),
+            ("orderBy", "startTime"),
+            ("maxResults", "25"),
+        ],
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Warning: Failed to fetch calendar events: {e}");
+        e
+    })
+    .unwrap_or(json!({}));
     let events = events_json
         .get("items")
         .and_then(|i| i.as_array())
@@ -305,10 +321,18 @@ async fn handle_standup_report(matches: &ArgMatches) -> Result<(), GwsError> {
         .collect();
 
     // Fetch open tasks
-    let tasks_url = "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=20";
-    let tasks_json = get_json(&client, tasks_url, &token)
-        .await
-        .unwrap_or(json!({}));
+    let tasks_json = get_json(
+        &client,
+        "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks",
+        &token,
+        &[("showCompleted", "false"), ("maxResults", "20")],
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Warning: Failed to fetch tasks: {e}");
+        e
+    })
+    .unwrap_or(json!({}));
     let tasks = tasks_json
         .get("items")
         .and_then(|i| i.as_array())
@@ -358,11 +382,21 @@ async fn handle_meeting_prep(matches: &ArgMatches) -> Result<(), GwsError> {
     );
 
     let events_url = format!(
-        "https://www.googleapis.com/calendar/v3/calendars/{}/events?timeMin={}&singleEvents=true&orderBy=startTime&maxResults=1",
-        urlencoded(calendar_id),
-        urlencoded(&now_rfc),
+        "https://www.googleapis.com/calendar/v3/calendars/{}/events",
+        crate::validate::encode_path_segment(calendar_id),
     );
-    let events_json = get_json(&client, &events_url, &token).await?;
+    let events_json = get_json(
+        &client,
+        &events_url,
+        &token,
+        &[
+            ("timeMin", now_rfc.as_str()),
+            ("singleEvents", "true"),
+            ("orderBy", "startTime"),
+            ("maxResults", "1"),
+        ],
+    )
+    .await?;
     let items = events_json
         .get("items")
         .and_then(|i| i.as_array())
@@ -424,10 +458,16 @@ async fn handle_email_to_task(matches: &ArgMatches) -> Result<(), GwsError> {
 
     // 1. Fetch the email
     let msg_url = format!(
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}?format=metadata&metadataHeaders=Subject",
-        message_id,
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}",
+        crate::validate::encode_path_segment(message_id),
     );
-    let msg_json = get_json(&client, &msg_url, &token).await?;
+    let msg_json = get_json(
+        &client,
+        &msg_url,
+        &token,
+        &[("format", "metadata"), ("metadataHeaders", "Subject")],
+    )
+    .await?;
 
     let subject = msg_json
         .get("payload")
@@ -455,6 +495,7 @@ async fn handle_email_to_task(matches: &ArgMatches) -> Result<(), GwsError> {
         "notes": format!("From email: {}\n\n{}", message_id, snippet),
     });
 
+    let tasklist = crate::validate::validate_resource_name(tasklist)?;
     let task_url = format!(
         "https://tasks.googleapis.com/tasks/v1/lists/{}/tasks",
         tasklist,
@@ -508,14 +549,24 @@ async fn handle_weekly_digest(matches: &ArgMatches) -> Result<(), GwsError> {
     let time_max = epoch_to_rfc3339(week_end);
 
     // Fetch this week's events
-    let events_url = format!(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={}&timeMax={}&singleEvents=true&orderBy=startTime&maxResults=50",
-        urlencoded(&time_min),
-        urlencoded(&time_max),
-    );
-    let events_json = get_json(&client, &events_url, &token)
-        .await
-        .unwrap_or(json!({}));
+    let events_json = get_json(
+        &client,
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        &token,
+        &[
+            ("timeMin", time_min.as_str()),
+            ("timeMax", time_max.as_str()),
+            ("singleEvents", "true"),
+            ("orderBy", "startTime"),
+            ("maxResults", "50"),
+        ],
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Warning: Failed to fetch calendar events: {e}");
+        e
+    })
+    .unwrap_or(json!({}));
     let events = events_json
         .get("items")
         .and_then(|i| i.as_array())
@@ -533,11 +584,18 @@ async fn handle_weekly_digest(matches: &ArgMatches) -> Result<(), GwsError> {
         .collect();
 
     // Fetch unread email count
-    let gmail_url =
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is%3Aunread&maxResults=1";
-    let gmail_json = get_json(&client, gmail_url, &token)
-        .await
-        .unwrap_or(json!({}));
+    let gmail_json = get_json(
+        &client,
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        &token,
+        &[("q", "is:unread"), ("maxResults", "1")],
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Warning: Failed to fetch unread email count: {e}");
+        e
+    })
+    .unwrap_or(json!({}));
     let unread_estimate = gmail_json
         .get("resultSizeEstimate")
         .and_then(|v| v.as_u64())
@@ -569,10 +627,16 @@ async fn handle_file_announce(matches: &ArgMatches) -> Result<(), GwsError> {
 
     // 1. Fetch file metadata from Drive
     let file_url = format!(
-        "https://www.googleapis.com/drive/v3/files/{}?fields=id,name,webViewLink",
-        file_id,
+        "https://www.googleapis.com/drive/v3/files/{}",
+        crate::validate::encode_path_segment(file_id),
     );
-    let file_json = get_json(&client, &file_url, &token).await?;
+    let file_json = get_json(
+        &client,
+        &file_url,
+        &token,
+        &[("fields", "id,name,webViewLink")],
+    )
+    .await?;
     let file_name = file_json
         .get("name")
         .and_then(|v| v.as_str())
@@ -589,6 +653,7 @@ async fn handle_file_announce(matches: &ArgMatches) -> Result<(), GwsError> {
         .unwrap_or_else(|| format!("📎 {file_name}\n{file_link}"));
 
     let chat_body = json!({ "text": msg_text });
+    let space = crate::validate::validate_resource_name(space)?;
     let chat_url = format!("https://chat.googleapis.com/v1/{}/messages", space);
 
     let chat_resp = client
@@ -629,14 +694,6 @@ fn epoch_to_rfc3339(epoch: u64) -> String {
     Utc.timestamp_opt(epoch as i64, 0).unwrap().to_rfc3339()
 }
 
-fn urlencoded(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace('@', "%40")
-        .replace('+', "%2B")
-        .replace(':', "%3A")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,5 +718,62 @@ mod tests {
     #[test]
     fn test_helper_only() {
         assert!(WorkflowHelper.helper_only());
+    }
+
+    #[test]
+    fn test_epoch_to_rfc3339() {
+        assert_eq!(epoch_to_rfc3339(0), "1970-01-01T00:00:00+00:00");
+        assert_eq!(epoch_to_rfc3339(1710000000), "2024-03-09T16:00:00+00:00");
+    }
+
+    #[test]
+    fn test_build_standup_report_cmd() {
+        let cmd = build_standup_report_cmd();
+        assert_eq!(cmd.get_name(), "+standup-report");
+    }
+
+    #[test]
+    fn test_build_meeting_prep_cmd() {
+        let cmd = build_meeting_prep_cmd();
+        assert_eq!(cmd.get_name(), "+meeting-prep");
+    }
+
+    #[test]
+    fn test_build_email_to_task_cmd() {
+        let cmd = build_email_to_task_cmd();
+        assert_eq!(cmd.get_name(), "+email-to-task");
+
+        // message-id is required
+        let args = cmd
+            .clone()
+            .try_get_matches_from(vec!["+email-to-task", "--message-id", "123"]);
+        assert!(args.is_ok());
+
+        let args_err = cmd.try_get_matches_from(vec!["+email-to-task"]);
+        assert!(args_err.is_err());
+    }
+
+    #[test]
+    fn test_build_weekly_digest_cmd() {
+        let cmd = build_weekly_digest_cmd();
+        assert_eq!(cmd.get_name(), "+weekly-digest");
+    }
+
+    #[test]
+    fn test_build_file_announce_cmd() {
+        let cmd = build_file_announce_cmd();
+        assert_eq!(cmd.get_name(), "+file-announce");
+
+        let args = cmd.clone().try_get_matches_from(vec![
+            "+file-announce",
+            "--file-id",
+            "123",
+            "--space",
+            "spaces/test",
+        ]);
+        assert!(args.is_ok());
+
+        let args_err = cmd.try_get_matches_from(vec!["+file-announce"]);
+        assert!(args_err.is_err());
     }
 }
