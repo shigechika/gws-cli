@@ -144,7 +144,7 @@ pub async fn handle_generate_skills(args: &[String]) -> Result<(), GwsError> {
         };
         if emit_service {
             let service_md =
-                render_service_skill(alias, entry, &helpers, &resources, &product_name);
+                render_service_skill(alias, entry, &helpers, &resources, &product_name, &doc);
             write_skill(output_path, &skill_name, &service_md)?;
             index.push(SkillIndexEntry {
                 name: skill_name.clone(),
@@ -353,6 +353,7 @@ fn render_service_skill(
     helpers: &[&Command],
     resources: &[&Command],
     product_name: &str,
+    doc: &crate::discovery::RestDescription,
 ) -> String {
     let mut out = String::new();
 
@@ -414,7 +415,12 @@ metadata:
                 .get_subcommands()
                 .map(|m| {
                     let mname = m.get_name().to_string();
-                    let mabout = m.get_about().map(|s| s.to_string()).unwrap_or_default();
+                    // Use full description from discovery doc (with higher limit)
+                    // instead of the CLI-truncated about text.
+                    let mabout =
+                        lookup_method_description(doc, res_name, &mname).unwrap_or_else(|| {
+                            m.get_about().map(|s| s.to_string()).unwrap_or_default()
+                        });
                     format!("  - `{mname}` — {mabout}")
                 })
                 .collect();
@@ -844,18 +850,36 @@ fn truncate_desc(desc: &str) -> String {
     if let Some(first) = s.get(0..1) {
         s = format!("{}{}", first.to_uppercase(), &s[1..]);
     }
-    if s.len() > 120 {
-        if let Some(idx) = s[..120].rfind(' ') {
-            s = format!("{}...", &s[..idx]);
-        } else {
-            s = format!("{}...", &s[..117]);
-        }
-    }
+    // Delegate to shared truncation logic
+    s = crate::text::truncate_description(&s, crate::text::FRONTMATTER_DESCRIPTION_LIMIT, true);
     // Ensure trailing period
-    if !s.ends_with('.') && !s.ends_with("...") {
+    if !s.ends_with('.') && !s.ends_with('…') {
         s.push('.');
     }
     s
+}
+
+/// Looks up a method's full description from the Discovery Document and
+/// truncates it at the skill-body limit (longer than CLI help).
+fn lookup_method_description(
+    doc: &crate::discovery::RestDescription,
+    resource_name: &str,
+    method_name: &str,
+) -> Option<String> {
+    let resource = doc.resources.get(resource_name)?;
+    // Try direct method lookup first
+    if let Some(method) = resource.methods.get(method_name) {
+        if let Some(desc) = &method.description {
+            return Some(crate::text::truncate_description(
+                desc,
+                crate::text::SKILL_BODY_DESCRIPTION_LIMIT,
+                false,
+            ));
+        }
+    }
+    // For sub-resources listed as methods in the clap tree, return None
+    // (they show as "Operations on the 'X' resource" which is fine)
+    None
 }
 
 fn capitalize_first(s: &str) -> String {
@@ -967,5 +991,162 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_truncate_desc_short() {
+        assert_eq!(truncate_desc("hello world"), "Hello world.");
+    }
+
+    #[test]
+    fn test_truncate_desc_capitalizes() {
+        assert_eq!(truncate_desc("lists all files."), "Lists all files.");
+    }
+
+    #[test]
+    fn test_truncate_desc_replaces_quotes() {
+        assert_eq!(
+            truncate_desc(r#"Returns a "File" resource."#),
+            "Returns a 'File' resource."
+        );
+    }
+
+    #[test]
+    fn test_truncate_desc_truncates_long() {
+        let long = "A ".repeat(100); // 200 chars
+        let result = truncate_desc(&long);
+        assert!(
+            result.chars().count() <= crate::text::FRONTMATTER_DESCRIPTION_LIMIT + 2,
+            "should respect limit"
+        );
+    }
+
+    #[test]
+    fn test_truncate_desc_adds_period() {
+        assert_eq!(truncate_desc("no period"), "No period.");
+    }
+
+    #[test]
+    fn test_truncate_desc_preserves_existing_period() {
+        assert_eq!(truncate_desc("has one."), "Has one.");
+    }
+
+    #[test]
+    fn test_truncate_desc_ellipsis_no_period() {
+        // When truncation produces an ellipsis, don't add a period
+        let long = "word ".repeat(50);
+        let result = truncate_desc(&long);
+        assert!(result.ends_with('…'));
+        assert!(!result.ends_with(".…"));
+    }
+
+    #[test]
+    fn test_lookup_method_description_found() {
+        let mut methods = std::collections::HashMap::new();
+        methods.insert(
+            "list".to_string(),
+            crate::discovery::RestMethod {
+                description: Some(
+                    "Lists all the files. For more details see the docs.".to_string(),
+                ),
+                http_method: "GET".to_string(),
+                path: "files".to_string(),
+                ..Default::default()
+            },
+        );
+        let mut resources = std::collections::HashMap::new();
+        resources.insert(
+            "files".to_string(),
+            crate::discovery::RestResource {
+                methods,
+                ..Default::default()
+            },
+        );
+        let doc = crate::discovery::RestDescription {
+            name: "drive".to_string(),
+            resources,
+            ..Default::default()
+        };
+        let result = lookup_method_description(&doc, "files", "list");
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Lists all the files"));
+    }
+
+    #[test]
+    fn test_lookup_method_description_missing_resource() {
+        let doc = crate::discovery::RestDescription {
+            name: "drive".to_string(),
+            ..Default::default()
+        };
+        assert!(lookup_method_description(&doc, "missing", "list").is_none());
+    }
+
+    #[test]
+    fn test_lookup_method_description_missing_method() {
+        let mut resources = std::collections::HashMap::new();
+        resources.insert(
+            "files".to_string(),
+            crate::discovery::RestResource::default(),
+        );
+        let doc = crate::discovery::RestDescription {
+            name: "drive".to_string(),
+            resources,
+            ..Default::default()
+        };
+        assert!(lookup_method_description(&doc, "files", "missing").is_none());
+    }
+
+    #[test]
+    fn test_lookup_method_description_no_description() {
+        let mut methods = std::collections::HashMap::new();
+        methods.insert(
+            "list".to_string(),
+            crate::discovery::RestMethod {
+                description: None,
+                http_method: "GET".to_string(),
+                path: "files".to_string(),
+                ..Default::default()
+            },
+        );
+        let mut resources = std::collections::HashMap::new();
+        resources.insert(
+            "files".to_string(),
+            crate::discovery::RestResource {
+                methods,
+                ..Default::default()
+            },
+        );
+        let doc = crate::discovery::RestDescription {
+            name: "drive".to_string(),
+            resources,
+            ..Default::default()
+        };
+        assert!(lookup_method_description(&doc, "files", "list").is_none());
+    }
+
+    #[test]
+    fn test_capitalize_first_empty() {
+        assert_eq!(capitalize_first(""), "");
+    }
+
+    #[test]
+    fn test_capitalize_first_basic() {
+        assert_eq!(capitalize_first("hello"), "Hello");
+    }
+
+    #[test]
+    fn test_product_name_from_title_strips_api() {
+        assert_eq!(product_name_from_title("Google Drive API"), "Google Drive");
+    }
+
+    #[test]
+    fn test_product_name_from_title_no_api_suffix() {
+        // product_name_from_title prepends "Google" if not already present
+        assert_eq!(product_name_from_title("Workspace"), "Google Workspace");
+    }
+
+    #[test]
+    fn test_product_name_from_title_adds_google() {
+        assert_eq!(product_name_from_title("Drive API"), "Google Drive");
     }
 }
