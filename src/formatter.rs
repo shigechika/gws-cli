@@ -35,13 +35,25 @@ pub enum OutputFormat {
 
 impl OutputFormat {
     /// Parse from a string argument.
-    pub fn from_str(s: &str) -> Self {
+    ///
+    /// Returns `Ok(format)` for known values, or `Err(unknown_value)` if the
+    /// string is not recognised.  Call sites should warn the user on `Err` and
+    /// decide whether to fall back to JSON or surface an error.
+    pub fn parse(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
-            "table" => Self::Table,
-            "yaml" | "yml" => Self::Yaml,
-            "csv" => Self::Csv,
-            _ => Self::Json,
+            "json" => Ok(Self::Json),
+            "table" => Ok(Self::Table),
+            "yaml" | "yml" => Ok(Self::Yaml),
+            "csv" => Ok(Self::Csv),
+            other => Err(other.to_string()),
         }
+    }
+
+    /// Parse from a string argument, falling back to JSON for unknown values.
+    ///
+    /// Prefer `parse()` at call sites where you want to surface a warning.
+    pub fn from_str(s: &str) -> Self {
+        Self::parse(s).unwrap_or(Self::Json)
     }
 }
 
@@ -369,6 +381,25 @@ mod tests {
         assert_eq!(OutputFormat::from_str("yml"), OutputFormat::Yaml);
         assert_eq!(OutputFormat::from_str("csv"), OutputFormat::Csv);
         assert_eq!(OutputFormat::from_str("unknown"), OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_output_format_parse_known() {
+        assert_eq!(OutputFormat::parse("json"), Ok(OutputFormat::Json));
+        assert_eq!(OutputFormat::parse("table"), Ok(OutputFormat::Table));
+        assert_eq!(OutputFormat::parse("yaml"), Ok(OutputFormat::Yaml));
+        assert_eq!(OutputFormat::parse("yml"), Ok(OutputFormat::Yaml));
+        assert_eq!(OutputFormat::parse("csv"), Ok(OutputFormat::Csv));
+        // Case-insensitive
+        assert_eq!(OutputFormat::parse("JSON"), Ok(OutputFormat::Json));
+        assert_eq!(OutputFormat::parse("TABLE"), Ok(OutputFormat::Table));
+    }
+
+    #[test]
+    fn test_output_format_parse_unknown_returns_err() {
+        assert!(OutputFormat::parse("bogus").is_err());
+        assert_eq!(OutputFormat::parse("bogus").unwrap_err(), "bogus");
+        assert!(OutputFormat::parse("").is_err());
     }
 
     #[test]

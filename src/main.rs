@@ -139,10 +139,18 @@ async fn run() -> Result<(), GwsError> {
     })?;
 
     // Resolve --format flag
-    let output_format = matches
-        .get_one::<String>("format")
-        .map(|s| formatter::OutputFormat::from_str(s))
-        .unwrap_or_default();
+    let output_format = match matches.get_one::<String>("format") {
+        Some(s) => match formatter::OutputFormat::parse(s) {
+            Ok(fmt) => fmt,
+            Err(unknown) => {
+                eprintln!(
+                    "warning: unknown output format '{unknown}'; falling back to json (valid options: json, table, yaml, csv)"
+                );
+                formatter::OutputFormat::Json
+            }
+        },
+        None => formatter::OutputFormat::default(),
+    };
 
     // Resolve --sanitize template (flag or env var)
     let sanitize_template = matches
