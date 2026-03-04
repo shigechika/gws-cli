@@ -32,7 +32,7 @@ jobs:
       - name: Install ClawHub CLI
         run: npm i -g clawhub@0.7.0
 
-      - name: Publish skills
+      - name: Authenticate ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
@@ -40,6 +40,10 @@ jobs:
             echo "::error::CLAWHUB_TOKEN secret is not set"
             exit 1
           fi
+          clawhub login --token "$CLAWHUB_TOKEN"
+
+      - name: Publish skills
+        run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             clawhub sync --root skills --all --dry-run
           else
