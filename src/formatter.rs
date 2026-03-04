@@ -463,11 +463,23 @@ mod tests {
         });
         let output = format_value(&val, &OutputFormat::Table);
         // Should contain dot-notation keys
-        assert!(output.contains("user.displayName"), "expected flattened key in output:\n{output}");
-        assert!(output.contains("user.emailAddress"), "expected flattened key in output:\n{output}");
-        assert!(output.contains("Alice"), "expected value in output:\n{output}");
+        assert!(
+            output.contains("user.displayName"),
+            "expected flattened key in output:\n{output}"
+        );
+        assert!(
+            output.contains("user.emailAddress"),
+            "expected flattened key in output:\n{output}"
+        );
+        assert!(
+            output.contains("Alice"),
+            "expected value in output:\n{output}"
+        );
         // Should NOT contain raw JSON blobs
-        assert!(!output.contains("{\"displayName"), "should not have raw JSON blob:\n{output}");
+        assert!(
+            !output.contains("{\"displayName"),
+            "should not have raw JSON blob:\n{output}"
+        );
     }
 
     #[test]
@@ -477,7 +489,10 @@ mod tests {
             {"id": "2", "owner": {"name": "Bob"}}
         ]);
         let output = format_value(&val, &OutputFormat::Table);
-        assert!(output.contains("owner.name"), "expected flattened column:\n{output}");
+        assert!(
+            output.contains("owner.name"),
+            "expected flattened column:\n{output}"
+        );
         assert!(output.contains("Alice"), "expected value:\n{output}");
         assert!(output.contains("Bob"), "expected value:\n{output}");
     }
