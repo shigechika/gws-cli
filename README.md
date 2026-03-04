@@ -207,7 +207,7 @@ gws drive files create --json '{"name": "report.pdf"}' --upload ./report.pdf
 
 ### Model Armor (Response Sanitization)
 
-Integrate [Google Cloud Model Armor](https://cloud.google.com/model-armor) to scan API responses for prompt injection before they reach your agent.
+Integrate [Google Cloud Model Armor](https://cloud.google.com/security/products/model-armor) to scan API responses for prompt injection before they reach your agent.
 
 ```bash
 gws gmail users messages get --params '...' \
