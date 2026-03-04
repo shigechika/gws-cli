@@ -110,6 +110,30 @@ fn format_table(value: &Value) -> String {
     format_table_page(value, true)
 }
 
+/// Recursively flatten a JSON object into `(dot.notation.key, string_value)` pairs.
+///
+/// Nested objects become `parent.child` key names so that `--format table` can
+/// render them as individual columns instead of raw JSON blobs.
+fn flatten_object(obj: &serde_json::Map<String, Value>, prefix: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (key, val) in obj {
+        let full_key = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
+        match val {
+            Value::Object(nested) => {
+                out.extend(flatten_object(nested, &full_key));
+            }
+            _ => {
+                out.push((full_key, value_to_cell(val)));
+            }
+        }
+    }
+    out
+}
+
 /// Format as a text table, optionally omitting the header row.
 ///
 /// Pass `emit_header = false` for continuation pages when using `--page-all`
@@ -124,11 +148,11 @@ fn format_table_page(value: &Value, emit_header: bool) -> String {
     } else if let Value::Array(arr) = value {
         format_array_as_table(arr, emit_header)
     } else if let Value::Object(obj) = value {
-        // Single object: key/value table
+        // Single object: key/value table — flatten nested objects first
         let mut output = String::new();
-        let max_key_len = obj.keys().map(|k| k.len()).max().unwrap_or(0);
-        for (key, val) in obj {
-            let val_str = value_to_cell(val);
+        let flat = flatten_object(obj, "");
+        let max_key_len = flat.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+        for (key, val_str) in &flat {
             let _ = writeln!(output, "{:width$}  {}", key, val_str, width = max_key_len);
         }
         output
@@ -142,14 +166,21 @@ fn format_array_as_table(arr: &[Value], emit_header: bool) -> String {
         return "(empty)\n".to_string();
     }
 
-    // Collect all unique keys across all objects
+    // Flatten each row so nested objects become dot-notation columns.
+    let flat_rows: Vec<Vec<(String, String)>> = arr
+        .iter()
+        .map(|item| match item {
+            Value::Object(obj) => flatten_object(obj, ""),
+            _ => vec![(String::new(), value_to_cell(item))],
+        })
+        .collect();
+
+    // Collect all unique column names (preserving insertion order).
     let mut columns: Vec<String> = Vec::new();
-    for item in arr {
-        if let Value::Object(obj) = item {
-            for key in obj.keys() {
-                if !columns.contains(key) {
-                    columns.push(key.clone());
-                }
+    for row in &flat_rows {
+        for (key, _) in row {
+            if !columns.contains(key) {
+                columns.push(key.clone());
             }
         }
     }
@@ -163,24 +194,32 @@ fn format_array_as_table(arr: &[Value], emit_header: bool) -> String {
         return output;
     }
 
-    // Calculate column widths
-    let mut widths: Vec<usize> = columns.iter().map(|c| c.len()).collect();
-    let rows: Vec<Vec<String>> = arr
+    // Build lookup: row_index -> column_name -> cell_value
+    let row_maps: Vec<std::collections::HashMap<&str, &str>> = flat_rows
         .iter()
-        .map(|item| {
+        .map(|pairs| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect()
+        })
+        .collect();
+
+    // Calculate column widths (char-count, not byte-count).
+    let mut widths: Vec<usize> = columns.iter().map(|c| c.chars().count()).collect();
+    let rows: Vec<Vec<String>> = row_maps
+        .iter()
+        .map(|row| {
             columns
                 .iter()
                 .enumerate()
                 .map(|(i, col)| {
-                    let cell = if let Value::Object(obj) = item {
-                        obj.get(col).map(value_to_cell).unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
-                    if cell.len() > widths[i] {
-                        widths[i] = cell.len();
+                    let cell = row.get(col.as_str()).copied().unwrap_or("").to_string();
+                    let char_len = cell.chars().count();
+                    if char_len > widths[i] {
+                        widths[i] = char_len;
                     }
-                    // Cap column width at 60
+                    // Cap column width at 60 chars
                     if widths[i] > 60 {
                         widths[i] = 60;
                     }
@@ -206,18 +245,23 @@ fn format_array_as_table(arr: &[Value], emit_header: bool) -> String {
         let _ = writeln!(output, "{}", sep.join("  "));
     }
 
-    // Rows
+    // Rows — truncate by char count to avoid panicking on multi-byte UTF-8.
     for row in &rows {
         let cells: Vec<String> = row
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let truncated = if c.len() > widths[i] {
-                    format!("{}…", &c[..widths[i] - 1])
+                let char_len = c.chars().count();
+                let truncated = if char_len > widths[i] {
+                    // Safe char-boundary slice: take widths[i]-1 chars, then append ellipsis.
+                    let truncated_str: String = c.chars().take(widths[i] - 1).collect();
+                    format!("{truncated_str}…")
                 } else {
                     c.clone()
                 };
-                format!("{:width$}", truncated, width = widths[i])
+                // Pad to column width (by char count)
+                let pad = widths[i].saturating_sub(truncated.chars().count());
+                format!("{truncated}{}", " ".repeat(pad))
             })
             .collect();
         let _ = writeln!(output, "{}", cells.join("  "));
@@ -436,6 +480,74 @@ mod tests {
         let output = format_value(&val, &OutputFormat::Table);
         assert!(output.contains("id"));
         assert!(output.contains("abc"));
+    }
+
+    #[test]
+    fn test_format_table_nested_object_flattened() {
+        // Nested objects should become dot-notation columns, not raw JSON blobs.
+        let val = json!({
+            "user": {
+                "displayName": "Alice",
+                "emailAddress": "alice@example.com"
+            },
+            "storageQuota": {
+                "limit": "1000",
+                "usage": "500"
+            }
+        });
+        let output = format_value(&val, &OutputFormat::Table);
+        // Should contain dot-notation keys
+        assert!(
+            output.contains("user.displayName"),
+            "expected flattened key in output:\n{output}"
+        );
+        assert!(
+            output.contains("user.emailAddress"),
+            "expected flattened key in output:\n{output}"
+        );
+        assert!(
+            output.contains("Alice"),
+            "expected value in output:\n{output}"
+        );
+        // Should NOT contain raw JSON blobs
+        assert!(
+            !output.contains("{\"displayName"),
+            "should not have raw JSON blob:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_format_table_nested_objects_in_array() {
+        let val = json!([
+            {"id": "1", "owner": {"name": "Alice"}},
+            {"id": "2", "owner": {"name": "Bob"}}
+        ]);
+        let output = format_value(&val, &OutputFormat::Table);
+        assert!(
+            output.contains("owner.name"),
+            "expected flattened column:\n{output}"
+        );
+        assert!(output.contains("Alice"), "expected value:\n{output}");
+        assert!(output.contains("Bob"), "expected value:\n{output}");
+    }
+
+    #[test]
+    fn test_format_table_multibyte_truncation_does_not_panic() {
+        // Column width cap is 60 chars, so a long string with multi-byte chars
+        // must be safely truncated without a byte-boundary panic.
+        let long_emoji = "😀".repeat(70); // each emoji is 4 bytes
+        let val = json!([{"col": long_emoji}]);
+        // Should not panic
+        let output = format_value(&val, &OutputFormat::Table);
+        assert!(output.contains("col"), "column name must appear:\n{output}");
+    }
+
+    #[test]
+    fn test_format_table_multibyte_exact_boundary() {
+        // Multi-byte chars at various positions must not panic or produce garbled output.
+        let val = json!([{"name": "café résumé naïve"}]);
+        let output = format_value(&val, &OutputFormat::Table);
+        assert!(output.contains("name"), "column must appear:\n{output}");
     }
 
     #[test]
