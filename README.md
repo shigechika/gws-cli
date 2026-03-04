@@ -45,7 +45,7 @@ npm install -g @googleworkspace/cli
 ```bash
 npm install -g @googleworkspace/cli
 
-gws setup          # walks you through Google Cloud project config + OAuth login
+gws auth setup     # walks you through Google Cloud project config + OAuth login
 gws drive files list --params '{"pageSize": 5}'
 ```
 
@@ -92,7 +92,7 @@ The CLI supports multiple auth workflows so it works on your laptop, in CI, and 
 Credentials are encrypted at rest (AES-256-GCM) with the key stored in your OS keyring.
 
 ```bash
-gws setup            # one-time: creates a Cloud project, enables APIs, logs you in
+gws auth setup       # one-time: creates a Cloud project, enables APIs, logs you in
 gws auth login       # subsequent logins
 ```
 
@@ -100,7 +100,7 @@ gws auth login       # subsequent logins
 
 ### Manual OAuth setup (Google Cloud Console)
 
-Use this when `gws setup` cannot automate project/client creation, or when you want explicit control.
+Use this when `gws auth setup` cannot automate project/client creation, or when you want explicit control.
 
 1. Open Google Cloud Console in the target project:
    - OAuth consent screen: `https://console.cloud.google.com/apis/credentials/consent?project=<PROJECT_ID>`
@@ -210,7 +210,7 @@ The `gws-shared` skill includes an `install` block so OpenClaw auto-installs the
 
 1. Authenticate the CLI first:
    ```bash
-   gws setup
+   gws auth setup
    ```
 
 2. Install the extension into the Gemini CLI:
@@ -296,7 +296,7 @@ If a required Google API is not enabled for your GCP project, you will see a
 3. Wait ~10 seconds, then retry your `gws` command.
 
 > [!TIP]
-> You can also run `gws setup` which walks you through enabling all required
+> You can also run `gws auth setup` which walks you through enabling all required
 > APIs for your project automatically.
 
 
