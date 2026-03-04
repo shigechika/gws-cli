@@ -1,0 +1,71 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Generate Skills
+
+on:
+  push:
+    branches-ignore:
+      - main # main is kept up to date by PR merges; this bot targets PR branches
+
+concurrency:
+  group: generate-skills-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  generate:
+    name: Generate and commit skills
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to push the auto-commit
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the PR head branch so we can push back to it.
+          # For push events on a branch this is already the branch SHA.
+          ref: ${{ github.head_ref || github.ref_name }}
+          # Use the default GITHUB_TOKEN — it has write access to the same repo.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: generate-skills-ubuntu
+
+      - name: Generate skills
+        run: cargo run -- generate-skills
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "No skill changes — nothing to commit."
+            exit 0
+          fi
+
+          git add skills/ docs/skills.md
+          git commit -m "chore: regenerate skills [skip ci]"
+          git push
