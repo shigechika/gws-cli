@@ -28,6 +28,7 @@ mod discovery;
 mod error;
 mod executor;
 mod formatter;
+mod fs_util;
 mod generate_skills;
 mod helpers;
 mod oauth_config;
