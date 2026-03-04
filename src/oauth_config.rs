@@ -81,7 +81,8 @@ pub fn save_client_config(
     }
 
     let json = serde_json::to_string_pretty(&config)?;
-    std::fs::write(&path, &json)?;
+    crate::fs_util::atomic_write(&path, json.as_bytes())
+        .map_err(|e| anyhow::anyhow!("Failed to write client config: {e}"))?;
 
     // Set file permissions to 600 on Unix (contains secrets)
     #[cfg(unix)]

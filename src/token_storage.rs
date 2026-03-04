@@ -60,19 +60,8 @@ impl EncryptedTokenStorage {
             }
         }
 
-        #[cfg(unix)]
-        {
-            let mut options = tokio::fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true).mode(0o600);
-            if let Ok(mut file) = options.open(&self.file_path).await {
-                use tokio::io::AsyncWriteExt;
-                let _ = file.write_all(encrypted.as_slice()).await;
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            tokio::fs::write(&self.file_path, encrypted).await?;
-        }
+        // Write atomically via a sibling .tmp file + rename.
+        let _ = crate::fs_util::atomic_write_async(&self.file_path, encrypted.as_slice()).await;
 
         Ok(())
     }

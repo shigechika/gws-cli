@@ -233,18 +233,16 @@ pub fn save_encrypted(json: &str) -> anyhow::Result<PathBuf> {
 
     let encrypted = encrypt(json.as_bytes())?;
 
+    // Write atomically via a sibling .tmp file + rename so the credentials
+    // file is never left in a corrupt partial-write state on crash/Ctrl-C.
+    crate::fs_util::atomic_write(&path, &encrypted)
+        .map_err(|e| anyhow::anyhow!("Failed to write credentials: {e}"))?;
+
+    // Set permissions to 600 on Unix (contains secrets)
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true).mode(0o600);
-        let mut file = options.open(&path)?;
-        use std::io::Write;
-        file.write_all(&encrypted)?;
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&path, encrypted)?;
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
 
     Ok(path)
