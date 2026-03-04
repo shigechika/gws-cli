@@ -11,6 +11,8 @@ on:
     paths:
       - "skills/**"
       - ".github/workflows/publish-skills.yml"
+  schedule:
+    - cron: "0 * * * *" # Hourly, to drip-publish past rate limits
   workflow_dispatch:
 
 concurrency:
