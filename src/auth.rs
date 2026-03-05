@@ -51,9 +51,7 @@ pub async fn get_token(scopes: &[&str], account: Option<&str>) -> anyhow::Result
 
     let creds_file = std::env::var("GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE").ok();
     let impersonated_user = std::env::var("GOOGLE_WORKSPACE_CLI_IMPERSONATED_USER").ok();
-    let config_dir = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("gws");
+    let config_dir = crate::auth_commands::config_dir();
 
     // If env var credentials are specified, skip account resolution entirely
     if creds_file.is_some() {

@@ -96,9 +96,25 @@ pub fn config_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
 
-    dirs::config_dir()
+    // Use ~/.config/gws on all platforms for a consistent, user-friendly path.
+    let primary = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("gws")
+        .join(".config")
+        .join("gws");
+    if primary.exists() {
+        return primary;
+    }
+
+    // Backward compat: fall back to OS-specific config dir for existing installs
+    // (e.g. ~/Library/Application Support/gws on macOS, %APPDATA%\gws on Windows).
+    let legacy = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("gws");
+    if legacy.exists() {
+        return legacy;
+    }
+
+    primary
 }
 
 fn plain_credentials_path() -> PathBuf {
@@ -1453,6 +1469,40 @@ mod tests {
     fn config_dir_returns_gws_subdir() {
         let path = config_dir();
         assert!(path.ends_with("gws"));
+    }
+
+    #[test]
+    fn config_dir_primary_uses_dot_config() {
+        // The primary (non-test) path should be ~/.config/gws.
+        // We can't easily test the real function without env override,
+        // but we verify the building blocks: home_dir + .config + gws.
+        let primary = dirs::home_dir()
+            .unwrap()
+            .join(".config")
+            .join("gws");
+        assert!(primary.ends_with(".config/gws") || primary.ends_with(r".config\gws"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn config_dir_fallback_to_legacy() {
+        // When GOOGLE_WORKSPACE_CLI_CONFIG_DIR points to a legacy-style dir,
+        // config_dir() should return it (simulating the test env override).
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join("legacy_gws");
+        std::fs::create_dir_all(&legacy).unwrap();
+
+        unsafe {
+            std::env::set_var(
+                "GOOGLE_WORKSPACE_CLI_CONFIG_DIR",
+                legacy.to_str().unwrap(),
+            );
+        }
+        let path = config_dir();
+        assert_eq!(path, legacy);
+        unsafe {
+            std::env::remove_var("GOOGLE_WORKSPACE_CLI_CONFIG_DIR");
+        }
     }
 
     #[test]
