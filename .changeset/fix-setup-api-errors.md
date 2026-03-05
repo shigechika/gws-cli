@@ -1,5 +1,5 @@
 ---
-"gws": patch
+"@googleworkspace/cli": patch
 ---
 
 fix(setup): enable APIs individually and surface gcloud errors
