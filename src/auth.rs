@@ -24,6 +24,19 @@ use anyhow::Context;
 
 use crate::credential_store;
 
+/// Returns the well-known Application Default Credentials path:
+/// `~/.config/gcloud/application_default_credentials.json`.
+///
+/// Note: `dirs::config_dir()` returns `~/Library/Application Support` on macOS, which is
+/// wrong for gcloud. The Google Cloud SDK always uses `~/.config/gcloud` regardless of OS.
+fn adc_well_known_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|d| {
+        d.join(".config")
+            .join("gcloud")
+            .join("application_default_credentials.json")
+    })
+}
+
 /// Types of credentials we support
 #[derive(Debug)]
 enum Credential {
@@ -38,6 +51,10 @@ enum Credential {
 /// 1. `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` env var (plaintext JSON, can be User or Service Account)
 /// 2. Per-account encrypted credentials via `accounts.json` registry
 /// 3. Plaintext credentials at `~/.config/gws/credentials.json` (User only)
+/// 4. Application Default Credentials (ADC):
+///    - `GOOGLE_APPLICATION_CREDENTIALS` env var (path to a JSON credentials file), then
+///    - Well-known ADC path: `~/.config/gcloud/application_default_credentials.json`
+///      (populated by `gcloud auth application-default login`)
 ///
 /// When `account` is `Some`, a specific registered account is used.
 /// When `account` is `None`, the default account from `accounts.json` is used.
@@ -201,6 +218,30 @@ async fn get_token_inner(
     }
 }
 
+/// Parse a plaintext JSON credential file into a [`Credential`].
+///
+/// Determines the credential type from the `"type"` field:
+/// - `"service_account"` → [`Credential::ServiceAccount`]
+/// - anything else (including `"authorized_user"`) → [`Credential::AuthorizedUser`]
+///
+/// Uses the already-parsed `serde_json::Value` to avoid a second string parse.
+async fn parse_credential_file(path: &std::path::Path, content: &str) -> anyhow::Result<Credential> {
+    let json: serde_json::Value = serde_json::from_str(content)
+        .with_context(|| format!("Failed to parse credentials JSON at {}", path.display()))?;
+
+    if json.get("type").and_then(|v| v.as_str()) == Some("service_account") {
+        let key = yup_oauth2::parse_service_account_key(content)
+            .with_context(|| format!("Failed to parse service account key from {}", path.display()))?;
+        return Ok(Credential::ServiceAccount(key));
+    }
+
+    // Deserialize from the Value we already have — avoids a second string parse.
+    let secret: yup_oauth2::authorized_user::AuthorizedUserSecret =
+        serde_json::from_value(json)
+            .with_context(|| format!("Failed to parse authorized user credentials from {}", path.display()))?;
+    Ok(Credential::AuthorizedUser(secret))
+}
+
 async fn load_credentials_inner(
     env_file: Option<&str>,
     enc_path: &std::path::Path,
@@ -210,29 +251,10 @@ async fn load_credentials_inner(
     if let Some(path) = env_file {
         let p = PathBuf::from(path);
         if p.exists() {
-            // Read file content first to determine type
             let content = tokio::fs::read_to_string(&p)
                 .await
                 .with_context(|| format!("Failed to read credentials from {path}"))?;
-
-            let json: serde_json::Value =
-                serde_json::from_str(&content).context("Failed to parse credentials JSON")?;
-
-            // Check for "type" field
-            if let Some(type_str) = json.get("type").and_then(|v| v.as_str()) {
-                if type_str == "service_account" {
-                    let key = yup_oauth2::parse_service_account_key(&content)
-                        .context("Failed to parse service account key")?;
-                    return Ok(Credential::ServiceAccount(key));
-                }
-            }
-
-            // Default to parsed authorized user secret if not service account
-            // We re-parse specifically to AuthorizedUserSecret to validate fields
-            let secret: yup_oauth2::authorized_user::AuthorizedUserSecret =
-                serde_json::from_str(&content)
-                    .context("Failed to parse authorized user credentials")?;
-            return Ok(Credential::AuthorizedUser(secret));
+            return parse_credential_file(&p, &content).await;
         }
         anyhow::bail!(
             "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE points to {path}, but file does not exist"
@@ -279,9 +301,36 @@ async fn load_credentials_inner(
         ));
     }
 
+    // 4a. GOOGLE_APPLICATION_CREDENTIALS env var (explicit path — hard error if missing)
+    if let Ok(adc_env) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+        let adc_path = PathBuf::from(&adc_env);
+        if adc_path.exists() {
+            let content = tokio::fs::read_to_string(&adc_path)
+                .await
+                .with_context(|| format!("Failed to read ADC from {adc_env}"))?;
+            return parse_credential_file(&adc_path, &content).await;
+        }
+        anyhow::bail!(
+            "GOOGLE_APPLICATION_CREDENTIALS points to {adc_env}, but file does not exist"
+        );
+    }
+
+    // 4b. Well-known ADC path: ~/.config/gcloud/application_default_credentials.json
+    // (populated by `gcloud auth application-default login`). Silent if absent.
+    if let Some(well_known) = adc_well_known_path() {
+        if well_known.exists() {
+            let content = tokio::fs::read_to_string(&well_known)
+                .await
+                .with_context(|| format!("Failed to read ADC from {}", well_known.display()))?;
+            return parse_credential_file(&well_known, &content).await;
+        }
+    }
+
     anyhow::bail!(
         "No credentials found. Run `gws auth setup` to configure, \
-         `gws auth login` to authenticate, or set GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"
+         `gws auth login` to authenticate, or set GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE.\n\
+         Tip: Application Default Credentials (ADC) are also supported — run \
+         `gcloud auth application-default login` or set GOOGLE_APPLICATION_CREDENTIALS."
     )
 }
 
@@ -304,6 +353,103 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("No credentials found"));
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_load_credentials_adc_env_var_authorized_user() {
+        let mut file = NamedTempFile::new().unwrap();
+        let json = r#"{
+            "client_id": "adc_id",
+            "client_secret": "adc_secret",
+            "refresh_token": "adc_refresh",
+            "type": "authorized_user"
+        }"#;
+        file.write_all(json.as_bytes()).unwrap();
+
+        std::env::set_var(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            file.path().to_str().unwrap(),
+        );
+
+        let res = load_credentials_inner(
+            None,
+            &PathBuf::from("/missing/enc"),
+            &PathBuf::from("/missing/plain"),
+        )
+        .await;
+
+        std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+
+        match res.unwrap() {
+            Credential::AuthorizedUser(secret) => {
+                assert_eq!(secret.client_id, "adc_id");
+                assert_eq!(secret.refresh_token, "adc_refresh");
+            }
+            _ => panic!("Expected AuthorizedUser from ADC"),
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_load_credentials_adc_env_var_service_account() {
+        let mut file = NamedTempFile::new().unwrap();
+        let json = r#"{
+            "type": "service_account",
+            "project_id": "test-project",
+            "private_key_id": "adc-key-id",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n",
+            "client_email": "adc-sa@test-project.iam.gserviceaccount.com",
+            "client_id": "456",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }"#;
+        file.write_all(json.as_bytes()).unwrap();
+
+        std::env::set_var(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            file.path().to_str().unwrap(),
+        );
+
+        let res = load_credentials_inner(
+            None,
+            &PathBuf::from("/missing/enc"),
+            &PathBuf::from("/missing/plain"),
+        )
+        .await;
+
+        std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+
+        match res.unwrap() {
+            Credential::ServiceAccount(key) => {
+                assert_eq!(key.client_email, "adc-sa@test-project.iam.gserviceaccount.com");
+            }
+            _ => panic!("Expected ServiceAccount from ADC"),
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_load_credentials_adc_env_var_missing_file() {
+        std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", "/does/not/exist.json");
+
+        // When GOOGLE_APPLICATION_CREDENTIALS points to a missing file, we error immediately
+        // rather than falling through — the user explicitly asked for this file.
+        let err = load_credentials_inner(
+            None,
+            &PathBuf::from("/missing/enc"),
+            &PathBuf::from("/missing/plain"),
+        )
+        .await;
+
+        std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
+
+        assert!(err.is_err());
+        let msg = err.unwrap_err().to_string();
+        assert!(
+            msg.contains("does not exist"),
+            "Should hard-error when GOOGLE_APPLICATION_CREDENTIALS points to missing file, got: {msg}"
+        );
     }
 
     #[tokio::test]
@@ -407,18 +553,14 @@ mod tests {
         let old_token = std::env::var("GOOGLE_WORKSPACE_CLI_TOKEN").ok();
 
         // Set the token env var
-        unsafe {
-            std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", "my-test-token");
-        }
+        std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", "my-test-token");
 
         let result = get_token(&["https://www.googleapis.com/auth/drive"], None).await;
 
-        unsafe {
-            if let Some(t) = old_token {
-                std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", t);
-            } else {
-                std::env::remove_var("GOOGLE_WORKSPACE_CLI_TOKEN");
-            }
+        if let Some(t) = old_token {
+            std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", t);
+        } else {
+            std::env::remove_var("GOOGLE_WORKSPACE_CLI_TOKEN");
         }
 
         assert!(result.is_ok());
@@ -431,9 +573,7 @@ mod tests {
         // An empty token should not short-circuit — it should be ignored
         // and fall through to normal credential loading.
         // We test with non-existent credential paths to ensure fallthrough.
-        unsafe {
-            std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", "");
-        }
+        std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", "");
 
         let result = load_credentials_inner(
             None,
@@ -442,9 +582,7 @@ mod tests {
         )
         .await;
 
-        unsafe {
-            std::env::remove_var("GOOGLE_WORKSPACE_CLI_TOKEN");
-        }
+        std::env::remove_var("GOOGLE_WORKSPACE_CLI_TOKEN");
 
         // Should fall through to normal credential loading, which fails
         // because we pointed at non-existent paths
