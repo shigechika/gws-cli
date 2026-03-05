@@ -17,7 +17,7 @@ name: Automation
 on:
   push:
     branches: [main]
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
   pull_request_review:
     types: [submitted]
@@ -94,7 +94,7 @@ jobs:
 
   file-labeler:
     name: File Labeler
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/labeler@v5
@@ -105,7 +105,7 @@ jobs:
   gemini-review:
     name: Gemini Review
     if: >-
-      github.event_name == 'pull_request' &&
+      github.event_name == 'pull_request_target' &&
       github.event.action == 'synchronize'
     runs-on: ubuntu-latest
     concurrency:
