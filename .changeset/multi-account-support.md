@@ -1,5 +1,5 @@
 ---
-"gws": minor
+"@googleworkspace/cli": minor
 ---
 
 ### Multi-Account Support
