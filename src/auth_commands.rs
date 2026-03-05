@@ -1476,10 +1476,7 @@ mod tests {
         // The primary (non-test) path should be ~/.config/gws.
         // We can't easily test the real function without env override,
         // but we verify the building blocks: home_dir + .config + gws.
-        let primary = dirs::home_dir()
-            .unwrap()
-            .join(".config")
-            .join("gws");
+        let primary = dirs::home_dir().unwrap().join(".config").join("gws");
         assert!(primary.ends_with(".config/gws") || primary.ends_with(r".config\gws"));
     }
 
@@ -1493,10 +1490,7 @@ mod tests {
         std::fs::create_dir_all(&legacy).unwrap();
 
         unsafe {
-            std::env::set_var(
-                "GOOGLE_WORKSPACE_CLI_CONFIG_DIR",
-                legacy.to_str().unwrap(),
-            );
+            std::env::set_var("GOOGLE_WORKSPACE_CLI_CONFIG_DIR", legacy.to_str().unwrap());
         }
         let path = config_dir();
         assert_eq!(path, legacy);
