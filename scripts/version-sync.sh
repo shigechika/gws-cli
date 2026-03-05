@@ -21,5 +21,10 @@ awk -v ver="$VERSION" '
 # Update Cargo.lock to match
 cargo generate-lockfile
 
+# Update flake.lock if nix is available
+if command -v nix > /dev/null 2>&1; then
+  nix flake lock --update-input nixpkgs
+fi
+
 # Stage the changed files so changesets/action commits them
-git add Cargo.toml Cargo.lock
+git add Cargo.toml Cargo.lock flake.nix flake.lock

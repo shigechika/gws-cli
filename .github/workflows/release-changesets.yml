@@ -38,6 +38,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GOOGLEWORKSPACE_BOT_TOKEN }}
+
       - uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
