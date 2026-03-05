@@ -184,7 +184,7 @@ impl PickerState {
                     // Only deselect the counterpart when we are SELECTING an item
                     if current_selected {
                         let counterpart_to_deselect = if current_label.ends_with(".readonly") {
-                            current_label.strip_suffix(".readonly").unwrap().to_string()
+                            current_label.strip_suffix(".readonly").unwrap_or(&current_label).to_string()
                         } else {
                             format!("{}.readonly", current_label)
                         };

@@ -802,7 +802,7 @@ fn run_discovery_scope_picker(
         };
 
         let is_recommended = if entry.is_readonly {
-            let superset = entry.url.strip_suffix(".readonly").unwrap();
+            let superset = entry.url.strip_suffix(".readonly").unwrap_or(&entry.url);
             let superset_is_recommended = filtered_scopes
                 .iter()
                 .any(|s| s.url == superset && s.classification != ScopeClassification::Restricted);
