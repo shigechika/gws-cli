@@ -125,7 +125,13 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
                         }),
                     };
 
-                    let mut out = serde_json::to_string(&response).unwrap();
+                    let mut out = match serde_json::to_string(&response) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("[gws mcp] Failed to serialize response: {e}");
+                            continue;
+                        }
+                    };
                     out.push('\n');
                     let _ = stdout.write_all(out.as_bytes()).await;
                     let _ = stdout.flush().await;
@@ -140,7 +146,13 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
                         "message": "Parse error"
                     }
                 });
-                let mut out = serde_json::to_string(&response).unwrap();
+                let mut out = match serde_json::to_string(&response) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("[gws mcp] Failed to serialize error response: {e}");
+                        continue;
+                    }
+                };
                 out.push('\n');
                 let _ = stdout.write_all(out.as_bytes()).await;
                 let _ = stdout.flush().await;
@@ -375,10 +387,16 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
     };
 
     let params_json_val = arguments.get("params");
-    let params_str = params_json_val.map(|v| serde_json::to_string(v).unwrap());
+    let params_str = params_json_val
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| GwsError::Validation(format!("Failed to serialize params: {e}")))?;
 
     let body_json_val = arguments.get("body");
-    let body_str = body_json_val.map(|v| serde_json::to_string(v).unwrap());
+    let body_str = body_json_val
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| GwsError::Validation(format!("Failed to serialize body: {e}")))?;
 
     // Security: validate upload path to prevent arbitrary local file reads.
     // Only allow paths within the current working directory.
@@ -409,7 +427,12 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
     let scopes: Vec<&str> = method.scopes.iter().map(|s| s.as_str()).collect();
     let (token, auth_method) = match crate::auth::get_token(&scopes, None).await {
         Ok(t) => (Some(t), crate::executor::AuthMethod::OAuth),
-        Err(_) => (None, crate::executor::AuthMethod::None),
+        Err(e) => {
+            eprintln!(
+                "[gws mcp] Warning: Authentication failed, proceeding without credentials: {e}"
+            );
+            (None, crate::executor::AuthMethod::None)
+        }
     };
 
     let result = crate::executor::execute_method(
