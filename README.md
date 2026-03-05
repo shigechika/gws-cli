@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/googleworkspace/cli/refs/heads/main/docs/logo.jpg" alt="gws logo" width="100%">
-</p>
-
 <h1 align="center">gws</h1>
 
 **One CLI for all of Google Workspace — built for humans and AI agents.**<br>
