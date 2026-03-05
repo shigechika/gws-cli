@@ -351,14 +351,60 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    /// RAII guard that saves the current value of an environment variable and
+    /// restores it when dropped. This ensures cleanup even if a test panics.
+    struct EnvVarGuard {
+        name: String,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        /// Save the current value of `name`, then set it to `value`.
+        fn set(name: &str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let original = std::env::var_os(name);
+            std::env::set_var(name, value);
+            Self {
+                name: name.to_string(),
+                original,
+            }
+        }
+
+        /// Save the current value of `name`, then remove it.
+        fn remove(name: &str) -> Self {
+            let original = std::env::var_os(name);
+            std::env::remove_var(name);
+            Self {
+                name: name.to_string(),
+                original,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(v) => std::env::set_var(&self.name, v),
+                None => std::env::remove_var(&self.name),
+            }
+        }
+    }
+
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_load_credentials_no_options() {
+        // Isolate from host ADC: override HOME so adc_well_known_path()
+        // resolves to a non-existent directory, and clear the env var.
+        let tmp = tempfile::tempdir().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", tmp.path());
+        let _adc_guard = EnvVarGuard::remove("GOOGLE_APPLICATION_CREDENTIALS");
+
         let err = load_credentials_inner(
             None,
             &PathBuf::from("/does/not/exist1"),
             &PathBuf::from("/does/not/exist2"),
         )
         .await;
+
         assert!(err.is_err());
         assert!(err
             .unwrap_err()
@@ -378,7 +424,7 @@ mod tests {
         }"#;
         file.write_all(json.as_bytes()).unwrap();
 
-        std::env::set_var(
+        let _adc_guard = EnvVarGuard::set(
             "GOOGLE_APPLICATION_CREDENTIALS",
             file.path().to_str().unwrap(),
         );
@@ -389,8 +435,6 @@ mod tests {
             &PathBuf::from("/missing/plain"),
         )
         .await;
-
-        std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
 
         match res.unwrap() {
             Credential::AuthorizedUser(secret) => {
@@ -417,7 +461,7 @@ mod tests {
         }"#;
         file.write_all(json.as_bytes()).unwrap();
 
-        std::env::set_var(
+        let _adc_guard = EnvVarGuard::set(
             "GOOGLE_APPLICATION_CREDENTIALS",
             file.path().to_str().unwrap(),
         );
@@ -428,8 +472,6 @@ mod tests {
             &PathBuf::from("/missing/plain"),
         )
         .await;
-
-        std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
 
         match res.unwrap() {
             Credential::ServiceAccount(key) => {
@@ -445,7 +487,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn test_load_credentials_adc_env_var_missing_file() {
-        std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", "/does/not/exist.json");
+        let _adc_guard = EnvVarGuard::set("GOOGLE_APPLICATION_CREDENTIALS", "/does/not/exist.json");
 
         // When GOOGLE_APPLICATION_CREDENTIALS points to a missing file, we error immediately
         // rather than falling through — the user explicitly asked for this file.
@@ -455,8 +497,6 @@ mod tests {
             &PathBuf::from("/missing/plain"),
         )
         .await;
-
-        std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
 
         assert!(err.is_err());
         let msg = err.unwrap_err().to_string();
@@ -563,19 +603,9 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn test_get_token_from_env_var() {
-        // Save the old token
-        let old_token = std::env::var("GOOGLE_WORKSPACE_CLI_TOKEN").ok();
-
-        // Set the token env var
-        std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", "my-test-token");
+        let _token_guard = EnvVarGuard::set("GOOGLE_WORKSPACE_CLI_TOKEN", "my-test-token");
 
         let result = get_token(&["https://www.googleapis.com/auth/drive"], None).await;
-
-        if let Some(t) = old_token {
-            std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", t);
-        } else {
-            std::env::remove_var("GOOGLE_WORKSPACE_CLI_TOKEN");
-        }
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "my-test-token");
@@ -586,8 +616,11 @@ mod tests {
     async fn test_get_token_env_var_empty_falls_through() {
         // An empty token should not short-circuit — it should be ignored
         // and fall through to normal credential loading.
-        // We test with non-existent credential paths to ensure fallthrough.
-        std::env::set_var("GOOGLE_WORKSPACE_CLI_TOKEN", "");
+        // Isolate from host ADC so the well-known path doesn't match.
+        let tmp = tempfile::tempdir().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", tmp.path());
+        let _adc_guard = EnvVarGuard::remove("GOOGLE_APPLICATION_CREDENTIALS");
+        let _token_guard = EnvVarGuard::set("GOOGLE_WORKSPACE_CLI_TOKEN", "");
 
         let result = load_credentials_inner(
             None,
@@ -595,8 +628,6 @@ mod tests {
             &PathBuf::from("/does/not/exist2"),
         )
         .await;
-
-        std::env::remove_var("GOOGLE_WORKSPACE_CLI_TOKEN");
 
         // Should fall through to normal credential loading, which fails
         // because we pointed at non-existent paths
