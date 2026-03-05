@@ -615,11 +615,12 @@ fn get_access_token() -> Result<String, GwsError> {
 
 // ── API enabling ────────────────────────────────────────────────
 
-/// Enable selected Workspace APIs for a project. Returns (enabled, skipped, failed).
+/// Enable selected Workspace APIs for a project.
+/// Returns (enabled, skipped, failed) where failed includes the gcloud error message.
 async fn enable_apis(
     project_id: &str,
     api_ids: &[String],
-) -> (Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<(String, String)>) {
     // First, get already-enabled APIs
     let already_enabled = get_enabled_apis(project_id);
 
@@ -638,23 +639,55 @@ async fn enable_apis(
         return (Vec::new(), skipped, Vec::new());
     }
 
-    // Batch enable all APIs in a single gcloud call
-    let mut args = vec!["services".to_string(), "enable".to_string()];
-    args.extend(to_enable.clone());
-    args.push("--project".to_string());
-    args.push(project_id.to_string());
+    // Enable each API individually and in parallel so one failure doesn't
+    // block the rest.  Uses tokio::process to avoid blocking the executor.
+    use futures_util::stream::StreamExt;
 
-    let result = gcloud_cmd()
-        .args(&args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output();
+    let results = futures_util::stream::iter(to_enable)
+        .map(|api_id| {
+            let project_id = project_id.to_string();
+            async move {
+                let result = tokio::process::Command::new("gcloud")
+                    .env("CLOUDSDK_CORE_DISABLE_PROMPTS", "1")
+                    .args(["services", "enable", &api_id, "--project", &project_id])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::piped())
+                    .output()
+                    .await;
+                (api_id, result)
+            }
+        })
+        .buffer_unordered(5)
+        .collect::<Vec<_>>()
+        .await;
 
-    match result {
-        Ok(output) if output.status.success() => (to_enable, skipped, Vec::new()),
-        Ok(_) => (Vec::new(), skipped, to_enable),
-        Err(_) => (Vec::new(), skipped, to_enable),
+    let mut enabled = Vec::new();
+    let mut failed = Vec::new();
+
+    for (api_id, result) in results {
+        match result {
+            Ok(output) if output.status.success() => {
+                enabled.push(api_id);
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let msg = if stderr.is_empty() {
+                    format!(
+                        "gcloud services enable failed (exit code {:?})",
+                        output.status.code()
+                    )
+                } else {
+                    stderr
+                };
+                failed.push((api_id, msg));
+            }
+            Err(e) => {
+                failed.push((api_id, format!("Failed to run gcloud: {e}")));
+            }
+        }
     }
+
+    (enabled, skipped, failed)
 }
 
 /// Get the list of already-enabled API service names for a project.
@@ -784,7 +817,7 @@ struct SetupContext {
     client_secret: String,
     enabled: Vec<String>,
     skipped: Vec<String>,
-    failed: Vec<String>,
+    failed: Vec<(String, String)>,
 }
 
 impl SetupContext {
@@ -1152,14 +1185,31 @@ async fn stage_enable_apis(ctx: &mut SetupContext) -> Result<SetupStage, GwsErro
     ctx.enabled = enabled_apis;
     ctx.skipped = skipped_apis;
     ctx.failed = failed_apis;
-    ctx.wiz(
-        3,
-        StepStatus::Done(format!(
+
+    // Show failure details so the user knows what went wrong
+    if !ctx.failed.is_empty() {
+        eprintln!();
+        for (api, err) in &ctx.failed {
+            eprintln!("  ⚠  {} — {}", api, err);
+        }
+        eprintln!();
+    }
+
+    let status_msg = if ctx.failed.is_empty() {
+        format!(
             "{} enabled, {} skipped",
             ctx.enabled.len(),
             ctx.skipped.len()
-        )),
-    );
+        )
+    } else {
+        format!(
+            "{} enabled, {} skipped, {} failed",
+            ctx.enabled.len(),
+            ctx.skipped.len(),
+            ctx.failed.len()
+        )
+    };
+    ctx.wiz(3, StepStatus::Done(status_msg));
     Ok(SetupStage::ConfigureOauth)
 }
 
@@ -1388,7 +1438,7 @@ pub async fn run_setup(args: &[String]) -> Result<(), GwsError> {
         "project": ctx.project_id,
         "apis_enabled": ctx.enabled.len(),
         "apis_skipped": ctx.skipped.len(),
-        "apis_failed": ctx.failed.len(),
+        "apis_failed": ctx.failed.iter().map(|(api, err)| json!({"api": api, "error": err})).collect::<Vec<_>>(),
         "client_config": crate::oauth_config::client_config_path().display().to_string(),
     });
     println!(
@@ -1851,5 +1901,65 @@ mod tests {
             }
             _ => panic!("Expected EnableApis"),
         }
+    }
+
+    // ── enable_apis unit tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_enable_apis_with_no_apis_to_enable() {
+        // When no APIs are requested for enablement, `enable_apis` should
+        // return empty lists for enabled, skipped, and failed.
+        let (enabled, skipped, failed) = enable_apis("__nonexistent__", &[]).await;
+        assert!(enabled.is_empty());
+        assert!(skipped.is_empty());
+        assert!(failed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_enable_apis_with_invalid_project() {
+        // Calling enable_apis with a bogus project and a real API name
+        // should produce a failure with an error message (not swallowed).
+        let apis = vec!["storage.googleapis.com".to_string()];
+        let (enabled, skipped, failed) = enable_apis("__nonexistent_project_99999__", &apis).await;
+        // The API should not be in enabled (project doesn't exist)
+        assert!(enabled.is_empty());
+        assert!(skipped.is_empty());
+        // Should have exactly one failure with a non-empty error message
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].0, "storage.googleapis.com");
+        assert!(!failed[0].1.is_empty(), "Error message should not be empty");
+    }
+
+    #[test]
+    fn test_failed_apis_json_structure() {
+        // Verify the JSON output structure for failed APIs includes
+        // both "api" and "error" fields.
+        let failed: Vec<(String, String)> = vec![
+            ("vault.googleapis.com".into(), "Permission denied".into()),
+            ("admin.googleapis.com".into(), "Not found".into()),
+        ];
+        let json_failed: Vec<serde_json::Value> = failed
+            .iter()
+            .map(|(api, err)| json!({"api": api, "error": err}))
+            .collect();
+
+        assert_eq!(json_failed.len(), 2);
+
+        assert_eq!(json_failed[0]["api"], "vault.googleapis.com");
+        assert_eq!(json_failed[0]["error"], "Permission denied");
+
+        assert_eq!(json_failed[1]["api"], "admin.googleapis.com");
+        assert_eq!(json_failed[1]["error"], "Not found");
+    }
+
+    #[test]
+    fn test_failed_apis_json_empty() {
+        // When no APIs fail, the JSON array should be empty.
+        let failed: Vec<(String, String)> = vec![];
+        let json_failed: Vec<serde_json::Value> = failed
+            .iter()
+            .map(|(api, err)| json!({"api": api, "error": err}))
+            .collect();
+        assert!(json_failed.is_empty());
     }
 }
