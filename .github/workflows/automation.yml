@@ -24,6 +24,10 @@ on:
   check_run:
     types: [completed]
 
+concurrency:
+  group: automation-${{ github.event_name }}-${{ github.event.check_run.name || github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pull-requests: write
