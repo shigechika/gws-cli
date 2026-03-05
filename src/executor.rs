@@ -1836,13 +1836,25 @@ async fn test_post_without_body_sets_content_length_zero() {
         is_upload: false,
     };
 
-    let request = build_http_request(&client, &method, &input, None, &AuthMethod::None, None, 0, None)
-        .await
-        .unwrap();
+    let request = build_http_request(
+        &client,
+        &method,
+        &input,
+        None,
+        &AuthMethod::None,
+        None,
+        0,
+        None,
+    )
+    .await
+    .unwrap();
 
     let built = request.build().unwrap();
     assert_eq!(
-        built.headers().get("Content-Length").map(|v| v.to_str().unwrap()),
+        built
+            .headers()
+            .get("Content-Length")
+            .map(|v| v.to_str().unwrap()),
         Some("0"),
         "POST with no body must include Content-Length: 0"
     );
@@ -1864,13 +1876,25 @@ async fn test_post_with_body_does_not_add_content_length_zero() {
         is_upload: false,
     };
 
-    let request = build_http_request(&client, &method, &input, None, &AuthMethod::None, None, 0, None)
-        .await
-        .unwrap();
+    let request = build_http_request(
+        &client,
+        &method,
+        &input,
+        None,
+        &AuthMethod::None,
+        None,
+        0,
+        None,
+    )
+    .await
+    .unwrap();
 
     let built = request.build().unwrap();
     // When body is present, Content-Length should NOT be "0"
-    let cl = built.headers().get("Content-Length").map(|v| v.to_str().unwrap().to_string());
+    let cl = built
+        .headers()
+        .get("Content-Length")
+        .map(|v| v.to_str().unwrap().to_string());
     assert!(cl.is_none() || cl.as_deref() != Some("0"));
 }
 
@@ -1890,9 +1914,18 @@ async fn test_get_does_not_set_content_length_zero() {
         is_upload: false,
     };
 
-    let request = build_http_request(&client, &method, &input, None, &AuthMethod::None, None, 0, None)
-        .await
-        .unwrap();
+    let request = build_http_request(
+        &client,
+        &method,
+        &input,
+        None,
+        &AuthMethod::None,
+        None,
+        0,
+        None,
+    )
+    .await
+    .unwrap();
 
     let built = request.build().unwrap();
     assert!(
