@@ -1,5 +1,5 @@
 ---
-"gws": patch
+"@googleworkspace/cli": patch
 ---
 
 fix: credential masking panic and silent token write errors
