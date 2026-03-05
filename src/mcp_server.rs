@@ -477,8 +477,7 @@ async fn handle_discover(arguments: &Value, config: &ServerConfig) -> Result<Val
         )));
     }
 
-    let (api_name, version) =
-        crate::parse_service_and_version(&[service.to_string()], service)?;
+    let (api_name, version) = crate::parse_service_and_version(&[service.to_string()], service)?;
     let doc = crate::discovery::fetch_discovery_document(&api_name, &version).await?;
 
     let resource_name = arguments.get("resource").and_then(|v| v.as_str());
@@ -495,12 +494,14 @@ async fn handle_discover(arguments: &Value, config: &ServerConfig) -> Result<Val
         (Some(res), None) => {
             let mut all_paths = Vec::new();
             collect_resource_paths(&doc.resources, "", &mut all_paths);
-            let resource = find_resource(&doc.resources, res)
-                .ok_or_else(|| GwsError::Validation(format!(
+            let resource = find_resource(&doc.resources, res).ok_or_else(|| {
+                GwsError::Validation(format!(
                     "Resource '{}' not found in {}. Available: {}",
-                    res, service,
+                    res,
+                    service,
                     all_paths.join(", ")
-                )))?;
+                ))
+            })?;
             let methods: Vec<Value> = resource
                 .methods
                 .iter()
@@ -512,11 +513,7 @@ async fn handle_discover(arguments: &Value, config: &ServerConfig) -> Result<Val
                     })
                 })
                 .collect();
-            let sub_resources: Vec<&str> = resource
-                .resources
-                .keys()
-                .map(|s| s.as_str())
-                .collect();
+            let sub_resources: Vec<&str> = resource.resources.keys().map(|s| s.as_str()).collect();
             let mut result = json!({ "service": service, "resource": res, "methods": methods });
             if !sub_resources.is_empty() {
                 result["subResources"] = json!(sub_resources);
@@ -525,21 +522,30 @@ async fn handle_discover(arguments: &Value, config: &ServerConfig) -> Result<Val
         }
         // Level 3: full param schema for a method
         (Some(res), Some(meth)) => {
-            let resource = find_resource(&doc.resources, res)
-                .ok_or_else(|| {
-                    let mut all_paths = Vec::new();
-                    collect_resource_paths(&doc.resources, "", &mut all_paths);
-                    GwsError::Validation(format!(
-                        "Resource '{}' not found in {}. Available: {}",
-                        res, service, all_paths.join(", ")
-                    ))
-                })?;
-            let method = resource.methods.get(meth)
-                .ok_or_else(|| GwsError::Validation(format!(
+            let resource = find_resource(&doc.resources, res).ok_or_else(|| {
+                let mut all_paths = Vec::new();
+                collect_resource_paths(&doc.resources, "", &mut all_paths);
+                GwsError::Validation(format!(
+                    "Resource '{}' not found in {}. Available: {}",
+                    res,
+                    service,
+                    all_paths.join(", ")
+                ))
+            })?;
+            let method = resource.methods.get(meth).ok_or_else(|| {
+                GwsError::Validation(format!(
                     "Method '{}' not found in {}.{}. Available: {}",
-                    meth, service, res,
-                    resource.methods.keys().cloned().collect::<Vec<_>>().join(", ")
-                )))?;
+                    meth,
+                    service,
+                    res,
+                    resource
+                        .methods
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            })?;
             let params: Vec<Value> = method
                 .parameters
                 .iter()
@@ -672,17 +678,19 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
             crate::parse_service_and_version(&[svc_alias.to_string()], svc_alias)?;
         let doc = crate::discovery::fetch_discovery_document(&api_name, &version).await?;
 
-        let resource = find_resource(&doc.resources, resource_path)
-            .ok_or_else(|| GwsError::Validation(format!(
+        let resource = find_resource(&doc.resources, resource_path).ok_or_else(|| {
+            GwsError::Validation(format!(
                 "Resource '{}' not found in {}",
                 resource_path, svc_alias
-            )))?;
+            ))
+        })?;
 
-        let method = resource.methods.get(method_name)
-            .ok_or_else(|| GwsError::Validation(format!(
+        let method = resource.methods.get(method_name).ok_or_else(|| {
+            GwsError::Validation(format!(
                 "Method '{}' not found in {}.{}",
                 method_name, svc_alias, resource_path
-            )))?;
+            ))
+        })?;
 
         return execute_mcp_method(&doc, method, arguments).await;
     }
@@ -826,7 +834,7 @@ async fn execute_mcp_method(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discovery::{RestDescription, RestMethod, RestResource, MethodParameter};
+    use crate::discovery::{MethodParameter, RestDescription, RestMethod, RestResource};
     use std::collections::HashMap;
 
     fn mock_config_compact(services: Vec<&str>) -> ServerConfig {
