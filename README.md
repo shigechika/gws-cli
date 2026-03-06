@@ -34,7 +34,6 @@ npm install -g @googleworkspace/cli
 - [Why gws?](#why-gws)
 - [Authentication](#authentication)
 - [AI Agent Skills](#ai-agent-skills)
-- [MCP Server](#mcp-server)
 - [Advanced Usage](#advanced-usage)
 - [Environment Variables](#environment-variables)
 - [Architecture](#architecture)
@@ -257,39 +256,6 @@ The `gws-shared` skill includes an `install` block so OpenClaw auto-installs the
    ```
 
 Installing this extension gives your Gemini CLI agent direct access to all `gws` commands and Google Workspace agent skills. Because `gws` handles its own authentication securely, you simply need to authenticate your terminal once prior to using the agent, and the extension will automatically inherit your credentials.
-
-## MCP Server
-
-`gws mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, exposing Google Workspace APIs as structured tools that any MCP-compatible client (Claude Desktop, Gemini CLI, VS Code, etc.) can call.
-
-```bash
-gws mcp -s drive                  # expose Drive tools
-gws mcp -s drive,gmail,calendar   # expose multiple services
-gws mcp -s all                    # expose all services (many tools!)
-```
-
-Configure in your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "gws": {
-      "command": "gws",
-      "args": ["mcp", "-s", "drive,gmail,calendar"]
-    }
-  }
-}
-```
-
-> [!TIP]
-> Each service adds roughly 10–80 tools. Keep the list to what you actually need
-> to stay under your client's tool limit (typically 50–100 tools).
-
-| Flag                    | Description                                  |
-| ----------------------- | -------------------------------------------- |
-| `-s, --services <list>` | Comma-separated services to expose, or `all` |
-| `-w, --workflows`       | Also expose workflow tools                   |
-| `-e, --helpers`         | Also expose helper tools                     |
 
 ## Advanced Usage
 

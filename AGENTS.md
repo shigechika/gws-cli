@@ -161,7 +161,6 @@ Use these labels to categorize pull requests and issues:
 - `area: docs` — README, contributing guides, documentation
 - `area: tui` — Setup wizard, picker, input fields
 - `area: distribution` — Nix flake, cargo-dist, npm packaging, install methods
-- `area: mcp` — Model Context Protocol server/tools
 - `area: auth` — OAuth, credentials, multi-account, ADC
 - `area: skills` — AI skill generation and management
 
