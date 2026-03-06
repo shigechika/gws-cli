@@ -1,5 +1,5 @@
 ---
-"@anthropic/gws": patch
+"@googleworkspace/cli": patch
 ---
 
 Replace strip_suffix(".readonly").unwrap() with unwrap_or fallback

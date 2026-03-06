@@ -1,5 +1,5 @@
 ---
-"@anthropic/gws": patch
+"@googleworkspace/cli": patch
 ---
 
 Log token cache decryption/parse errors instead of silently swallowing
