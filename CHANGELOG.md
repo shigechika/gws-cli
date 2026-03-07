@@ -1,5 +1,11 @@
 # @googleworkspace/cli
 
+## 0.8.0
+
+### Minor Changes
+
+- dd3fc90: Remove `mcp` command
+
 ## 0.7.0
 
 ### Minor Changes
