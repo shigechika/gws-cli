@@ -32,8 +32,12 @@ pub async fn handle_triage(matches: &ArgMatches) -> Result<(), GwsError> {
         .map(|s| crate::formatter::OutputFormat::from_str(s))
         .unwrap_or(crate::formatter::OutputFormat::Table);
 
-    // Authenticate
-    let token = auth::get_token(&[GMAIL_SCOPE])
+    // Authenticate — use gmail.readonly instead of gmail.modify because triage
+    // is read-only and the `q` query parameter is not supported under the
+    // gmail.metadata scope.  When a token carries both metadata and modify
+    // scopes the API may resolve to the metadata path and reject `q` with 403.
+    // gmail.readonly always supports `q`.
+    let token = auth::get_token(&[GMAIL_READONLY_SCOPE])
         .await
         .map_err(|e| GwsError::Auth(format!("Gmail auth failed: {e}")))?;
 

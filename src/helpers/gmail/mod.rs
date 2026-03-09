@@ -38,6 +38,7 @@ use std::pin::Pin;
 pub struct GmailHelper;
 
 pub(super) const GMAIL_SCOPE: &str = "https://www.googleapis.com/auth/gmail.modify";
+pub(super) const GMAIL_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
 pub(super) const PUBSUB_SCOPE: &str = "https://www.googleapis.com/auth/pubsub";
 
 pub(super) struct OriginalMessage {
