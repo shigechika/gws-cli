@@ -74,7 +74,7 @@ jobs:
       - name: Remove reviewed label
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GOOGLEWORKSPACE_BOT_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             try {
               await github.rest.issues.removeLabel({
@@ -93,7 +93,7 @@ jobs:
       - name: Trigger Gemini Code Assist review
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GOOGLEWORKSPACE_BOT_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -112,7 +112,7 @@ jobs:
       - name: Add reviewed label if review matches HEAD
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GOOGLEWORKSPACE_BOT_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
