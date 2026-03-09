@@ -48,9 +48,49 @@ pub(super) async fn handle_send(
     Ok(())
 }
 
+/// RFC 2047 encode a header value if it contains non-ASCII characters.
+/// Uses standard Base64 (RFC 2045) and folds at 75-char encoded-word limit.
+fn encode_header_value(value: &str) -> String {
+    if value.is_ascii() {
+        return value.to_string();
+    }
+
+    use base64::engine::general_purpose::STANDARD;
+
+    // RFC 2047 specifies a 75-character limit for encoded-words.
+    // Max raw length of 45 bytes -> 60 encoded chars. 60 + len("=?UTF-8?B??=") = 72, < 75.
+    const MAX_RAW_LEN: usize = 45;
+
+    // Chunk at character boundaries to avoid splitting multi-byte UTF-8 sequences.
+    let mut chunks: Vec<&str> = Vec::new();
+    let mut start = 0;
+    for (i, ch) in value.char_indices() {
+        if i + ch.len_utf8() - start > MAX_RAW_LEN && i > start {
+            chunks.push(&value[start..i]);
+            start = i;
+        }
+    }
+    if start < value.len() {
+        chunks.push(&value[start..]);
+    }
+
+    let encoded_words: Vec<String> = chunks
+        .iter()
+        .map(|chunk| format!("=?UTF-8?B?{}?=", STANDARD.encode(chunk.as_bytes())))
+        .collect();
+
+    // Join with CRLF and a space for folding.
+    encoded_words.join("\r\n ")
+}
+
 /// Helper to create a raw MIME email string.
 fn create_raw_message(to: &str, subject: &str, body: &str) -> String {
-    format!("To: {}\r\nSubject: {}\r\n\r\n{}", to, subject, body)
+    format!(
+        "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nTo: {}\r\nSubject: {}\r\n\r\n{}",
+        to,
+        encode_header_value(subject),
+        body
+    )
 }
 
 /// Creates a JSON body for sending an email.
@@ -80,9 +120,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_raw_message() {
+    fn test_create_raw_message_ascii() {
         let msg = create_raw_message("test@example.com", "Hello", "World");
-        assert_eq!(msg, "To: test@example.com\r\nSubject: Hello\r\n\r\nWorld");
+        assert_eq!(
+            msg,
+            "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nTo: test@example.com\r\nSubject: Hello\r\n\r\nWorld"
+        );
+    }
+
+    #[test]
+    fn test_create_raw_message_non_ascii_subject() {
+        let msg = create_raw_message("test@example.com", "Solar — Quote Request", "Body");
+        assert!(msg.contains("=?UTF-8?B?"));
+        assert!(!msg.contains("Solar — Quote Request"));
+    }
+
+    #[test]
+    fn test_encode_header_value_ascii() {
+        assert_eq!(encode_header_value("Hello World"), "Hello World");
+    }
+
+    #[test]
+    fn test_encode_header_value_non_ascii_short() {
+        let encoded = encode_header_value("Solar — Quote");
+        // Single encoded-word, no folding needed
+        assert_eq!(encoded, "=?UTF-8?B?U29sYXIg4oCUIFF1b3Rl?=");
+    }
+
+    #[test]
+    fn test_encode_header_value_non_ascii_long_folds() {
+        let long_subject = "This is a very long subject line that contains non-ASCII characters like — and it must be folded to respect the 75-character line limit of RFC 2047.";
+        let encoded = encode_header_value(long_subject);
+
+        assert!(encoded.contains("\r\n "), "Encoded string should be folded");
+        let parts: Vec<&str> = encoded.split("\r\n ").collect();
+        assert!(parts.len() > 1, "Should be multiple parts");
+        for part in &parts {
+            assert!(part.starts_with("=?UTF-8?B?"));
+            assert!(part.ends_with("?="));
+            assert!(part.len() <= 75, "Part too long: {} chars", part.len());
+        }
+    }
+
+    #[test]
+    fn test_encode_header_value_multibyte_boundary() {
+        // Build a subject where a multi-byte char (€ = 3 bytes) falls near the chunk boundary.
+        // Each chunk must decode to valid UTF-8 — no split multi-byte sequences.
+        use base64::engine::general_purpose::STANDARD;
+        let subject = format!("{}€€€", "A".repeat(43)); // 43 ASCII + 9 bytes of €s = 52 bytes
+        let encoded = encode_header_value(&subject);
+        for part in encoded.split("\r\n ") {
+            let b64 = part.trim_start_matches("=?UTF-8?B?").trim_end_matches("?=");
+            let decoded = STANDARD.decode(b64).expect("valid base64");
+            String::from_utf8(decoded).expect("each chunk must be valid UTF-8");
+        }
     }
 
     #[test]
