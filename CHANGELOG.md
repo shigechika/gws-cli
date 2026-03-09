@@ -1,5 +1,11 @@
 # @googleworkspace/cli
 
+## 0.8.1
+
+### Patch Changes
+
+- 4d41e52: Prioritize local project configuration and `GOOGLE_WORKSPACE_PROJECT_ID` over global Application Default Credentials (ADC) for quota attribution. This fixes 403 errors when the Drive API is disabled in a global gcloud project but enabled in the project configured for gws.
+
 ## 0.8.0
 
 ### Minor Changes
