@@ -656,8 +656,10 @@ mod tests {
     #[serial_test::serial]
     fn test_get_quota_project_priority_config() {
         let tmp = tempfile::tempdir().unwrap();
-        let _config_guard =
-            EnvVarGuard::set("GOOGLE_WORKSPACE_CLI_CONFIG_DIR", tmp.path().to_str().unwrap());
+        let _config_guard = EnvVarGuard::set(
+            "GOOGLE_WORKSPACE_CLI_CONFIG_DIR",
+            tmp.path().to_str().unwrap(),
+        );
         let _env_guard = EnvVarGuard::remove("GOOGLE_WORKSPACE_PROJECT_ID");
         let _adc_guard = EnvVarGuard::remove("GOOGLE_APPLICATION_CREDENTIALS");
         let _home_guard = EnvVarGuard::set("HOME", "/missing/home");
