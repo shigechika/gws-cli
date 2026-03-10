@@ -1,5 +1,66 @@
 # @googleworkspace/cli
 
+## 0.11.1
+
+### Patch Changes
+
+- adbca87: Fix `--format csv` for array-of-arrays responses (e.g. Sheets values API)
+
+## 0.11.0
+
+### Minor Changes
+
+- 4d4b09f: Add `--cc` and `--bcc` flags to `+send`, `--to` and `--bcc` to `+reply` and `+reply-all`, and `--bcc` to `+forward`.
+
+## 0.10.0
+
+### Minor Changes
+
+- 8d89325: Add `GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND` env var for explicit keyring backend selection (`keyring` or `file`). Fixes credential key loss in Docker/keyring-less environments by never deleting `.encryption_key` and always persisting it as a fallback.
+
+### Patch Changes
+
+- 06aa698: fix(auth): dynamically fetch scopes from Discovery docs when `-s` specifies services not in static scope lists
+- 06aa698: fix(auth): format extract_scopes_from_doc and deduplicate dynamic scopes
+- 5e7d120: Bring `+forward` behavior in line with Gmail's web UI: keep the forward in the sender's original thread, add a blank line between the forwarded message metadata and body, and remove the spurious closing delimiter.
+- 2782cf1: Fix gmail +triage 403 error by using gmail.readonly scope instead of gmail.modify to avoid conflict with gmail.metadata scope that does not support the q parameter
+
+## 0.9.1
+
+### Patch Changes
+
+- 5872dbe: Stop persisting encryption key to `.encryption_key` file when OS keyring is available. Existing file-based keys are migrated into the keyring and the file is removed on next CLI invocation.
+
+## 0.9.0
+
+### Minor Changes
+
+- 7d15365: feat(gmail): add +reply, +reply-all, and +forward helpers
+
+  Adds three new Gmail helper commands:
+
+  - `+reply` -- reply to a message with automatic threading
+  - `+reply-all` -- reply to all recipients with --remove/--cc support
+  - `+forward` -- forward a message to new recipients
+
+### Patch Changes
+
+- 08716f8: Fix garbled non-ASCII email subjects in `gmail +send` by RFC 2047 encoding the Subject header and adding MIME-Version/Content-Type headers.
+- f083eb9: Improve `gws auth setup` project creation failures in step 3:
+  - Detect Google Cloud Terms of Service precondition failures and show actionable guidance (`gcloud auth list`, account verification, Console ToS URL).
+  - Detect invalid project ID format / already-in-use errors and show clearer guidance.
+  - In interactive setup, keep the wizard open and re-prompt for a new project ID instead of exiting immediately on create failures.
+- 789e7f1: Switch reqwest TLS from bundled Mozilla roots to native OS certificate store
+
+  This allows the CLI to trust custom or corporate CA certificates installed
+  in the system trust store, fixing TLS errors in enterprise environments.
+
+## 0.8.1
+
+### Patch Changes
+
+- 4d41e52: Prioritize local project configuration and `GOOGLE_WORKSPACE_PROJECT_ID` over global Application Default Credentials (ADC) for quota attribution. This fixes 403 errors when the Drive API is disabled in a global gcloud project but enabled in the project configured for gws.
+
 ## 0.8.0
 
 ### Minor Changes

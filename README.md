@@ -3,9 +3,6 @@
 **One CLI for all of Google Workspace — built for humans and AI agents.**<br>
 Drive, Gmail, Calendar, and every Workspace API. Zero boilerplate. Structured JSON output. 40+ agent skills included.
 
-> [!IMPORTANT]
-> Temporarily disabling non-collaborator pull requests. See this discussion, https://github.com/googleworkspace/cli/discussions/249.
-
 > [!NOTE]
 > This is **not** an officially supported Google product.
 
@@ -119,7 +116,7 @@ The CLI supports multiple auth workflows so it works on your laptop, in CI, and 
 
 ### Interactive (local desktop)
 
-Credentials are encrypted at rest (AES-256-GCM) with the key stored in your OS keyring.
+Credentials are encrypted at rest (AES-256-GCM) with the key stored in your OS keyring (or `~/.config/gws/.encryption_key` when `GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file`).
 
 ```bash
 gws auth setup       # one-time: creates a Cloud project, enables APIs, logs you in
@@ -350,7 +347,7 @@ All variables are optional. See [`.env.example`](.env.example) for a copy-paste 
 | `GOOGLE_WORKSPACE_CLI_CONFIG_DIR` | Override config directory (default: `~/.config/gws`) |
 | `GOOGLE_WORKSPACE_CLI_SANITIZE_TEMPLATE` | Default Model Armor template |
 | `GOOGLE_WORKSPACE_CLI_SANITIZE_MODE` | `warn` (default) or `block` |
-| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID fallback for helper commands |
+| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID override for quota/billing and fallback for helper commands |
 
 Environment variables can also be set in a `.env` file (loaded via [dotenvy](https://crates.io/crates/dotenvy)).
 

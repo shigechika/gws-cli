@@ -21,6 +21,21 @@ cargo clippy -- -D warnings  # Lint check
 cargo test           # Run tests
 ```
 
+## Commit Messages
+
+> [!IMPORTANT]
+> **Issue 番号の除去**: このリポジトリは upstream（`googleworkspace/cli`）のフォークです。コミットメッセージに `#123` のような Issue/PR 番号参照が含まれていると、push 時に GitHub が自動的に upstream の該当 Issue/PR にクロスリファレンスを作成してしまいます。
+>
+> コミットメッセージを書く際、および upstream のコミットを cherry-pick/merge する際は、必ず `#番号` パターンを除去してください。
+
+```bash
+# 悪い例（upstream の Issue #275 にコメントが飛ぶ）
+git commit -m 'Revert "fix!: Remove MCP server mode (#275)"'
+
+# 良い例（番号を除去）
+git commit -m 'Revert "fix!: Remove MCP server mode"'
+```
+
 ## Changesets
 
 Every PR must include a changeset file. Create one at `.changeset/<descriptive-name>.md`:
@@ -172,7 +187,8 @@ Use these labels to categorize pull requests and issues:
 | Variable | Description |
 |---|---|
 | `GOOGLE_WORKSPACE_CLI_TOKEN` | Pre-obtained OAuth2 access token (highest priority; bypasses all credential file loading) |
-| `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` | Path to OAuth credentials JSON (no default; if unset, falls back to credentials secured by the OS Keyring and encrypted in `~/.config/gws/`) |
+| `GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE` | Path to OAuth credentials JSON (no default; if unset, falls back to encrypted credentials in `~/.config/gws/`) |
+| `GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND` | Keyring backend: `keyring` (default, uses OS keyring with file fallback) or `file` (file only, for Docker/CI/headless) |
 
 | `GOOGLE_APPLICATION_CREDENTIALS` | Standard Google ADC path; used as fallback when no gws-specific credentials are configured |
 
@@ -200,6 +216,6 @@ Use these labels to categorize pull requests and issues:
 
 | Variable | Description |
 |---|---|
-| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID fallback for `gmail watch` and `events subscribe` helpers (overridden by `--project` flag) |
+| `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID override for quota/billing and fallback for helper commands (overridden by `--project` flag) |
 
 All variables can also live in a `.env` file (loaded via `dotenvy`).

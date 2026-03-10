@@ -455,12 +455,15 @@ fn print_usage() {
     println!(
         "    GOOGLE_WORKSPACE_CLI_CONFIG_DIR          Override config directory (default: ~/.config/gws)"
     );
+    println!(
+        "    GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND     Keyring backend: keyring (default) or file"
+    );
     println!("    GOOGLE_WORKSPACE_CLI_SANITIZE_TEMPLATE   Default Model Armor template");
     println!(
         "    GOOGLE_WORKSPACE_CLI_SANITIZE_MODE       Sanitization mode: warn (default) or block"
     );
     println!(
-        "    GOOGLE_WORKSPACE_PROJECT_ID              GCP project ID fallback for helper commands"
+        "    GOOGLE_WORKSPACE_PROJECT_ID              Override the GCP project ID for quota and billing"
     );
     println!();
     println!("COMMUNITY:");
