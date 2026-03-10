@@ -1,0 +1,71 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # 毎週月曜 UTC 0:00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/googleworkspace/cli.git
+          git fetch upstream
+
+      - name: Check for new commits
+        id: check
+        run: |
+          COUNT=$(git rev-list HEAD..upstream/main --count)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Upstream has $COUNT new commit(s)"
+
+      - name: Merge upstream/main
+        if: steps.check.outputs.count != '0'
+        id: merge
+        run: |
+          if git merge upstream/main --no-edit; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push (no conflict)
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.conflict == 'false'
+        run: git push origin main
+
+      - name: Create PR (conflict)
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.conflict == 'true'
+        run: |
+          BRANCH="sync-upstream/$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git merge upstream/main --no-edit || true
+          git add -A
+          git commit -m "sync: merge upstream/main (conflicts need manual resolution)"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "sync: merge upstream/main (要手動解決)" \
+            --body "$(cat <<'EOF'
+          upstream の最新変更をマージしようとしましたが、コンフリクトが発生しました。
+          手動で解決してください。
+
+          MCP 機能の温存に注意してください（`src/mcp_server.rs` と `src/main.rs` の mcp エントリ）。
+          EOF
+          )"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
