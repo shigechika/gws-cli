@@ -45,6 +45,15 @@ jobs:
             echo "conflict=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Strip issue/PR number references from merge commit
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.conflict == 'false'
+        run: |
+          MSG=$(git log -1 --format=%B)
+          CLEANED=$(echo "$MSG" | sed 's/ (#[0-9]\+)//g; s/#[0-9]\+//g')
+          if [ "$MSG" != "$CLEANED" ]; then
+            git commit --amend -m "$CLEANED"
+          fi
+
       - name: Push (no conflict)
         if: steps.check.outputs.count != '0' && steps.merge.outputs.conflict == 'false'
         run: git push origin main
