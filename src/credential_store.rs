@@ -221,6 +221,15 @@ fn resolve_key(
                     if decoded.len() == 32 {
                         let mut arr = [0u8; 32];
                         arr.copy_from_slice(&decoded);
+                        // Ensure file backup stays in sync with keyring so
+                        // credentials survive keyring loss (e.g. after OS
+                        // upgrades, container restarts, daemon changes).
+                        if let Err(err) = save_key_file(key_file, &b64_key) {
+                            eprintln!(
+                                "Warning: failed to sync keyring backup file at '{}': {err}",
+                                key_file.display()
+                            );
+                        }
                         return Ok(arr);
                     }
                 }
@@ -527,13 +536,43 @@ mod tests {
     }
 
     #[test]
-    fn keyring_backend_keeps_file_when_keyring_succeeds() {
+    fn keyring_backend_creates_file_backup_when_missing() {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         let dir = tempfile::tempdir().unwrap();
-        let (_, key_file) = write_test_key(dir.path());
-        let mock = MockKeyring::with_password(&STANDARD.encode([7u8; 32]));
-        let _ = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
+        let key_file = dir.path().join(".encryption_key");
+        let expected = [7u8; 32];
+        let mock = MockKeyring::with_password(&STANDARD.encode(expected));
+        assert!(!key_file.exists(), "file must not exist before test");
+        let result = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
+        assert_eq!(result, expected);
+        assert!(
+            key_file.exists(),
+            "file backup must be created when keyring succeeds but file is missing"
+        );
+        let file_key = read_key_file(&key_file).unwrap();
+        assert_eq!(
+            file_key, expected,
+            "file backup must contain the keyring key"
+        );
+    }
+
+    #[test]
+    fn keyring_backend_syncs_file_when_keyring_differs() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let dir = tempfile::tempdir().unwrap();
+        // Write a file with one key, but put a different key in the keyring.
+        let (file_key, key_file) = write_test_key(dir.path());
+        let keyring_key = [7u8; 32];
+        assert_ne!(file_key, keyring_key, "keys must differ for this test");
+        let mock = MockKeyring::with_password(&STANDARD.encode(keyring_key));
+        let result = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
+        assert_eq!(result, keyring_key, "should return keyring key");
         assert!(key_file.exists(), "file must NOT be deleted");
+        let synced = read_key_file(&key_file).unwrap();
+        assert_eq!(
+            synced, keyring_key,
+            "file must be updated to match keyring key"
+        );
     }
 
     #[test]
