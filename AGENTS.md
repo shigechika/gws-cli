@@ -233,6 +233,20 @@ gws mcp -s gmail                    # raw API tool のみ
 >
 > **対処のコツ**: upstream は `pub(super)` で十分なので変更に気づきにくい。`git diff upstream/main -- src/helpers/gmail/mod.rs` で可視性の巻き戻しをチェックすること。
 
+### upstream ブランチ `fix/mcp-hyphen-tool-names` の追従対応（未マージ）
+
+upstream に MCP 関連の大規模リファクタブランチが存在する。main にマージされた際は以下の対応が必要:
+
+1. **ツール名のハイフン化**: `gmail_send` → `gmail-send`、`gws_discover` → `gws-discover` 等、全ツール名をアンダースコアからハイフン区切りに変更。`handle_tools_call()` のルーティングも合わせて修正。
+2. **`walk_resources` の prefix 変更**: `doc.name`（API 名）→ `svc_name`（ユーザー指定エイリアス）に変更済み。
+3. **gmail helper の大幅リファクタ**: `reply.rs` と `forward.rs` が削除され `send.rs` に統合。`MessageBuilder`, `OriginalMessage` 等の構造体が変更される。MCP helper の `handle_gmail_send()` がこれらに依存しているため、新しい構造体・シグネチャに合わせて書き直しが必要。
+4. **`_helpers` フィールドの巻き戻し**: upstream は `_helpers`（未使用）のままなので、こちらの `helpers` 変更を再適用する。
+
+```bash
+# マージ前にブランチの差分を確認
+git diff upstream/main -- src/mcp_server.rs src/helpers/gmail/
+```
+
 ## PR Labels
 
 Use these labels to categorize pull requests and issues:
