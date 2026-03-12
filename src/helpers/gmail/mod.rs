@@ -273,7 +273,7 @@ pub(super) fn encode_header_value(value: &str) -> String {
 }
 
 /// In-Reply-To and References values for threading a reply or forward.
-pub(super) struct ThreadingHeaders<'a> {
+pub(crate) struct ThreadingHeaders<'a> {
     pub in_reply_to: &'a str,
     pub references: &'a str,
 }
@@ -283,7 +283,7 @@ pub(super) struct ThreadingHeaders<'a> {
 /// Handles header construction with CRLF sanitization and RFC 2047
 /// encoding of non-ASCII subjects. Each helper owns its body assembly
 /// (quoted reply, forwarded block, plain body) and passes it to `build()`.
-pub(super) struct MessageBuilder<'a> {
+pub(crate) struct MessageBuilder<'a> {
     pub to: &'a str,
     pub subject: &'a str,
     pub from: Option<&'a str>,
@@ -355,7 +355,7 @@ pub(super) fn parse_optional_trimmed(matches: &ArgMatches, name: &str) -> Option
         .filter(|s| !s.is_empty())
 }
 
-pub(super) fn resolve_send_method(
+pub(crate) fn resolve_send_method(
     doc: &crate::discovery::RestDescription,
 ) -> Result<&crate::discovery::RestMethod, GwsError> {
     let users_res = doc
@@ -374,7 +374,7 @@ pub(super) fn resolve_send_method(
 
 /// Build the JSON request body for `users.messages.send`, base64-encoding
 /// the raw RFC 2822 message and optionally including a threadId.
-pub(super) fn build_raw_send_body(raw_message: &str, thread_id: Option<&str>) -> Value {
+pub(crate) fn build_raw_send_body(raw_message: &str, thread_id: Option<&str>) -> Value {
     let mut body =
         serde_json::Map::from_iter([("raw".to_string(), json!(URL_SAFE.encode(raw_message)))]);
 

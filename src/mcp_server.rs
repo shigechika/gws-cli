@@ -33,7 +33,7 @@ enum ToolMode {
 struct ServerConfig {
     services: Vec<String>,
     workflows: bool,
-    _helpers: bool,
+    helpers: bool,
     tool_mode: ToolMode,
 }
 
@@ -80,7 +80,7 @@ pub async fn start(args: &[String]) -> Result<(), GwsError> {
     let mut config = ServerConfig {
         services: Vec::new(),
         workflows: matches.get_flag("workflows"),
-        _helpers: matches.get_flag("helpers"),
+        helpers: matches.get_flag("helpers"),
         tool_mode,
     };
 
@@ -249,7 +249,12 @@ async fn build_tools_list(config: &ServerConfig) -> Result<Vec<Value>, GwsError>
         }
     }
 
-    // 2. Workflows
+    // 2. Helpers (convenience wrappers over raw API methods)
+    if config.helpers {
+        append_helper_tools(&config.services, &mut tools);
+    }
+
+    // 3. Workflows
     if config.workflows {
         append_workflow_tools(&mut tools);
     }
@@ -349,6 +354,11 @@ async fn build_compact_tools_list(config: &ServerConfig) -> Result<Vec<Value>, G
         }
     }));
 
+    // Helpers (same as full mode)
+    if config.helpers {
+        append_helper_tools(&config.services, &mut tools);
+    }
+
     // Workflows (same as full mode)
     if config.workflows {
         append_workflow_tools(&mut tools);
@@ -413,6 +423,125 @@ fn append_workflow_tools(tools: &mut Vec<Value>) {
             "required": ["file_id", "space"]
         }
     }));
+}
+
+fn append_helper_tools(services: &[String], tools: &mut Vec<Value>) {
+    if services.iter().any(|s| s == "gmail") {
+        tools.push(json!({
+            "name": "gmail_send",
+            "description": "Send an email with plain text body. Handles RFC 2822 formatting and base64 encoding automatically — no need to construct raw messages manually.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient email address(es), comma-separated"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Email subject"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Email body (plain text)"
+                    },
+                    "cc": {
+                        "type": "string",
+                        "description": "CC email address(es), comma-separated"
+                    },
+                    "bcc": {
+                        "type": "string",
+                        "description": "BCC email address(es), comma-separated"
+                    }
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }));
+    }
+}
+
+async fn handle_gmail_send(arguments: &Value) -> Result<Value, GwsError> {
+    let to = arguments
+        .get("to")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| GwsError::Validation("Missing 'to' parameter".to_string()))?;
+    let subject = arguments
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| GwsError::Validation("Missing 'subject' parameter".to_string()))?;
+    let body_text = arguments
+        .get("body")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| GwsError::Validation("Missing 'body' parameter".to_string()))?;
+    let cc = arguments.get("cc").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+    let bcc = arguments.get("bcc").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+
+    // Reuse the CLI helper's MessageBuilder for RFC 2822 construction
+    let raw_message = crate::helpers::gmail::MessageBuilder {
+        to,
+        subject,
+        from: None,
+        cc,
+        bcc,
+        threading: None,
+    }
+    .build(body_text);
+
+    let send_body = crate::helpers::gmail::build_raw_send_body(&raw_message, None);
+    let body_str = serde_json::to_string(&send_body)
+        .map_err(|e| GwsError::Validation(format!("Failed to serialize body: {e}")))?;
+
+    // Fetch Gmail discovery doc and resolve the send method
+    let (api_name, version) =
+        crate::parse_service_and_version(&["gmail".to_string()], "gmail")?;
+    let doc = crate::discovery::fetch_discovery_document(&api_name, &version).await?;
+    let send_method = crate::helpers::gmail::resolve_send_method(&doc)?;
+
+    let params = json!({ "userId": "me" });
+    let params_str = serde_json::to_string(&params)
+        .map_err(|e| GwsError::Validation(format!("Failed to serialize params: {e}")))?;
+
+    let scopes: Vec<&str> = crate::select_scope(&send_method.scopes).into_iter().collect();
+    let (token, auth_method) = match crate::auth::get_token(&scopes).await {
+        Ok(t) => (Some(t), crate::executor::AuthMethod::OAuth),
+        Err(e) => {
+            return Err(GwsError::Auth(format!("Gmail auth failed: {e}")));
+        }
+    };
+
+    let pagination = crate::executor::PaginationConfig {
+        page_all: false,
+        page_limit: 10,
+        page_delay_ms: 100,
+    };
+
+    let result = crate::executor::execute_method(
+        &doc,
+        send_method,
+        Some(&params_str),
+        Some(&body_str),
+        token.as_deref(),
+        auth_method,
+        None,
+        None,
+        false,
+        &pagination,
+        None,
+        &crate::helpers::modelarmor::SanitizeMode::Warn,
+        &crate::formatter::OutputFormat::default(),
+        true,
+    )
+    .await?;
+
+    let text_content = match result {
+        Some(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|_| "[]".to_string()),
+        None => "Email sent successfully.".to_string(),
+    };
+
+    Ok(json!({
+        "content": [{ "type": "text", "text": text_content }],
+        "isError": false
+    }))
 }
 
 fn walk_resources(prefix: &str, resources: &HashMap<String, RestResource>, tools: &mut Vec<Value>) {
@@ -674,6 +803,16 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
         return handle_discover(arguments, config).await;
     }
 
+    // Helper tools — convenience wrappers that reuse CLI helper logic
+    if tool_name == "gmail_send" {
+        if !config.helpers {
+            return Err(GwsError::Validation(
+                "Helper tools are not enabled. Re-run with --helpers flag.".to_string(),
+            ));
+        }
+        return handle_gmail_send(arguments).await;
+    }
+
     // Compact mode: tool_name IS the service alias, resource/method are in arguments
     if config.tool_mode == ToolMode::Compact {
         let resource_path = arguments
@@ -868,7 +1007,7 @@ mod tests {
         ServerConfig {
             services: services.into_iter().map(String::from).collect(),
             workflows: false,
-            _helpers: false,
+            helpers: false,
             tool_mode: ToolMode::Compact,
         }
     }
@@ -1147,5 +1286,80 @@ mod tests {
         assert_eq!(tools.len(), 5);
         assert_eq!(tools[0]["name"], "workflow_standup_report");
         assert_eq!(tools[4]["name"], "workflow_file_announce");
+    }
+
+    // -- append_helper_tools tests --
+
+    #[test]
+    fn test_append_helper_tools_gmail_adds_send() {
+        let services = vec!["gmail".to_string()];
+        let mut tools = Vec::new();
+        append_helper_tools(&services, &mut tools);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], "gmail_send");
+
+        let schema = &tools[0]["inputSchema"];
+        let required = schema["required"].as_array().unwrap();
+        let required_strs: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"to"));
+        assert!(required_strs.contains(&"subject"));
+        assert!(required_strs.contains(&"body"));
+
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("cc"));
+        assert!(props.contains_key("bcc"));
+    }
+
+    #[test]
+    fn test_append_helper_tools_no_gmail_adds_nothing() {
+        let services = vec!["drive".to_string(), "calendar".to_string()];
+        let mut tools = Vec::new();
+        append_helper_tools(&services, &mut tools);
+        assert!(tools.is_empty());
+    }
+
+    // -- handle_gmail_send validation tests --
+
+    #[tokio::test]
+    async fn test_handle_gmail_send_missing_to() {
+        let args = json!({"subject": "Hi", "body": "Hello"});
+        let result = handle_gmail_send(&args).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'to'"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_gmail_send_missing_subject() {
+        let args = json!({"to": "a@b.com", "body": "Hello"});
+        let result = handle_gmail_send(&args).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'subject'"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_gmail_send_missing_body() {
+        let args = json!({"to": "a@b.com", "subject": "Hi"});
+        let result = handle_gmail_send(&args).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'body'"));
+    }
+
+    // -- handle_tools_call helper gate tests --
+
+    #[tokio::test]
+    async fn test_gmail_send_rejected_when_helpers_disabled() {
+        let config = ServerConfig {
+            services: vec!["gmail".to_string()],
+            workflows: false,
+            helpers: false,
+            tool_mode: ToolMode::Full,
+        };
+        let params = json!({
+            "name": "gmail_send",
+            "arguments": {"to": "a@b.com", "subject": "Hi", "body": "Hello"}
+        });
+        let result = handle_tools_call(&params, &config).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("--helpers"));
     }
 }

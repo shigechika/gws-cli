@@ -70,6 +70,7 @@ The CLI uses a **two-phase argument parsing** strategy:
 | `src/commands.rs`         | Recursive `clap::Command` builder from Discovery resources                                |
 | `src/executor.rs`         | HTTP request construction, response handling, schema validation                           |
 | `src/schema.rs`           | `gws schema` command — introspect API method schemas                                      |
+| `src/mcp_server.rs`       | MCP stdio server: tool generation from Discovery + helper tools                           |
 | `src/error.rs`            | Structured JSON error output                                                              |
 
 ## Demo Videos
@@ -166,6 +167,71 @@ When adding a new helper or CLI command:
 4. **Query parameters** → Use reqwest `.query()` builder
 5. **Resource names** (project IDs, space names, topic names) → Use `validate_resource_name()`
 6. **Write tests** for both the happy path AND the rejection path (e.g., pass `../../.ssh` and assert `Err`)
+
+## MCP Helper Tools
+
+MCP サーバー（`src/mcp_server.rs`）は Discovery Document から自動生成される **raw API tool** に加え、CLI helper の便利機能を再利用した **helper tool** を提供する。
+
+### 設計原則
+
+> [!IMPORTANT]
+> **CLI helper コードの再利用**: MCP helper tool は RFC 2822 構築・base64 エンコード等のロジックを独自実装してはならない。`src/helpers/` の既存コードを `pub(crate)` 経由で呼び出すこと。車輪の再発明を防ぎ、セキュリティ対策（ヘッダーインジェクション防止、RFC 2047 エンコード等）の一貫性を保つ。
+
+### アーキテクチャ
+
+```
+CLI helper (src/helpers/gmail/)          MCP helper tool (src/mcp_server.rs)
+┌─────────────────────────────┐         ┌─────────────────────────────┐
+│ +send  --to/--subject/--body│         │ gmail_send  to/subject/body │
+│         ↓                   │         │         ↓                   │
+│ MessageBuilder::build()     │←─共有──→│ MessageBuilder::build()     │
+│ build_raw_send_body()       │←─共有──→│ build_raw_send_body()       │
+│ resolve_send_method()       │←─共有──→│ resolve_send_method()       │
+│         ↓                   │         │         ↓                   │
+│ executor::execute_method()  │         │ executor::execute_method()  │
+└─────────────────────────────┘         └─────────────────────────────┘
+```
+
+### 可視性ルール
+
+MCP から再利用する型・関数は `pub(crate)` にする。`pub` にはしない（外部クレートに公開する意図がないため）。
+
+| 型/関数 | 定義場所 | 可視性 | 用途 |
+|---|---|---|---|
+| `MessageBuilder` | `helpers/gmail/mod.rs` | `pub(crate)` | RFC 2822 メッセージ構築 |
+| `ThreadingHeaders` | `helpers/gmail/mod.rs` | `pub(crate)` | reply/forward 用スレッディング |
+| `build_raw_send_body()` | `helpers/gmail/mod.rs` | `pub(crate)` | base64url エンコード + JSON body 生成 |
+| `resolve_send_method()` | `helpers/gmail/mod.rs` | `pub(crate)` | Discovery doc から send メソッド解決 |
+
+### MCP helper tool の追加手順
+
+1. **CLI helper の共有関数を特定** — `src/helpers/<service>/` から再利用可能な関数を見つける
+2. **可視性を `pub(crate)` に変更** — `pub(super)` のままだと `mcp_server.rs` から見えない
+3. **`append_helper_tools()`** にツール定義を追加 — サービス名で条件分岐
+4. **`handle_<service>_<action>()`** を実装 — 引数パース → 共有関数呼び出し → `execute_method()`
+5. **`handle_tools_call()`** にルーティング追加 — `--helpers` フラグのゲートを含める
+6. **テスト追加** — バリデーション、ゲート、ツール登録の各テスト
+
+### `--helpers` フラグ
+
+Helper tool は `gws mcp --helpers` で有効化される。デフォルトは無効。これにより raw API tool のみで運用したい場合に tool 数が増えない。
+
+```bash
+gws mcp -s gmail --helpers          # helper tool 有効
+gws mcp -s gmail                    # raw API tool のみ
+```
+
+### upstream マージ時の注意
+
+> [!WARNING]
+> upstream（`googleworkspace/cli`）が `src/helpers/gmail/mod.rs` の構造体やシグネチャを変更した場合、MCP helper tool が壊れる可能性がある。マージ後は以下を確認すること:
+>
+> 1. `pub(crate)` に変更した型・関数が `pub(super)` に戻されていないか
+> 2. `MessageBuilder` のフィールドが増減していないか（MCP 側のコンストラクタに反映が必要）
+> 3. `build_raw_send_body()`, `resolve_send_method()` のシグネチャが変わっていないか
+> 4. `cargo test mcp_server` で helper 関連テストが通るか
+>
+> **対処のコツ**: upstream は `pub(super)` で十分なので変更に気づきにくい。`git diff upstream/main -- src/helpers/gmail/mod.rs` で可視性の巻き戻しをチェックすること。
 
 ## PR Labels
 
