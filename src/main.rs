@@ -49,7 +49,7 @@ async fn main() {
 
     if let Err(err) = run().await {
         print_error_json(&err);
-        std::process::exit(1);
+        std::process::exit(err.exit_code());
     }
 }
 
@@ -459,6 +459,11 @@ fn print_usage() {
     println!(
         "    GOOGLE_WORKSPACE_PROJECT_ID              Override the GCP project ID for quota and billing"
     );
+    println!();
+    println!("EXIT CODES:");
+    for (code, description) in crate::error::EXIT_CODE_DOCUMENTATION {
+        println!("    {:<5}{}", code, description);
+    }
     println!();
     println!("COMMUNITY:");
     println!("    Star the repo: https://github.com/googleworkspace/cli");

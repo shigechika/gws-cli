@@ -39,7 +39,51 @@ pub enum GwsError {
     Other(#[from] anyhow::Error),
 }
 
+/// Human-readable exit code table, keyed by (code, description).
+///
+/// Used by `print_usage()` so the help text stays in sync with the
+/// constants defined below without requiring manual updates in two places.
+pub const EXIT_CODE_DOCUMENTATION: &[(i32, &str)] = &[
+    (0, "Success"),
+    (GwsError::EXIT_CODE_API, "API error  — Google returned an error response"),
+    (GwsError::EXIT_CODE_AUTH, "Auth error — credentials missing or invalid"),
+    (GwsError::EXIT_CODE_VALIDATION, "Validation — bad arguments or input"),
+    (GwsError::EXIT_CODE_DISCOVERY, "Discovery  — could not fetch API schema"),
+    (GwsError::EXIT_CODE_OTHER, "Internal   — unexpected failure"),
+];
+
 impl GwsError {
+    /// Exit code for [`GwsError::Api`] variants.
+    pub const EXIT_CODE_API: i32 = 1;
+    /// Exit code for [`GwsError::Auth`] variants.
+    pub const EXIT_CODE_AUTH: i32 = 2;
+    /// Exit code for [`GwsError::Validation`] variants.
+    pub const EXIT_CODE_VALIDATION: i32 = 3;
+    /// Exit code for [`GwsError::Discovery`] variants.
+    pub const EXIT_CODE_DISCOVERY: i32 = 4;
+    /// Exit code for [`GwsError::Other`] variants.
+    pub const EXIT_CODE_OTHER: i32 = 5;
+
+    /// Map each error variant to a stable, documented exit code.
+    ///
+    /// | Code | Meaning                                      |
+    /// |------|----------------------------------------------|
+    /// |  0   | Success (never returned here)                |
+    /// |  1   | API error — Google returned an error response |
+    /// |  2   | Auth error — credentials missing or invalid  |
+    /// |  3   | Validation error — bad arguments or input    |
+    /// |  4   | Discovery error — could not fetch API schema |
+    /// |  5   | Internal error — unexpected failure          |
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            GwsError::Api { .. } => Self::EXIT_CODE_API,
+            GwsError::Auth(_) => Self::EXIT_CODE_AUTH,
+            GwsError::Validation(_) => Self::EXIT_CODE_VALIDATION,
+            GwsError::Discovery(_) => Self::EXIT_CODE_DISCOVERY,
+            GwsError::Other(_) => Self::EXIT_CODE_OTHER,
+        }
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             GwsError::Api {
@@ -125,6 +169,63 @@ pub fn print_error_json(err: &GwsError) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_exit_code_api() {
+        let err = GwsError::Api {
+            code: 404,
+            message: "Not Found".to_string(),
+            reason: "notFound".to_string(),
+            enable_url: None,
+        };
+        assert_eq!(err.exit_code(), GwsError::EXIT_CODE_API);
+    }
+
+    #[test]
+    fn test_exit_code_auth() {
+        assert_eq!(
+            GwsError::Auth("bad token".to_string()).exit_code(),
+            GwsError::EXIT_CODE_AUTH
+        );
+    }
+
+    #[test]
+    fn test_exit_code_validation() {
+        assert_eq!(
+            GwsError::Validation("missing arg".to_string()).exit_code(),
+            GwsError::EXIT_CODE_VALIDATION
+        );
+    }
+
+    #[test]
+    fn test_exit_code_discovery() {
+        assert_eq!(
+            GwsError::Discovery("fetch failed".to_string()).exit_code(),
+            GwsError::EXIT_CODE_DISCOVERY
+        );
+    }
+
+    #[test]
+    fn test_exit_code_other() {
+        assert_eq!(
+            GwsError::Other(anyhow::anyhow!("oops")).exit_code(),
+            GwsError::EXIT_CODE_OTHER
+        );
+    }
+
+    #[test]
+    fn test_exit_codes_are_distinct() {
+        // Ensure all named constants are unique (regression guard).
+        let codes = [
+            GwsError::EXIT_CODE_API,
+            GwsError::EXIT_CODE_AUTH,
+            GwsError::EXIT_CODE_VALIDATION,
+            GwsError::EXIT_CODE_DISCOVERY,
+            GwsError::EXIT_CODE_OTHER,
+        ];
+        let unique: std::collections::HashSet<i32> = codes.iter().copied().collect();
+        assert_eq!(unique.len(), codes.len(), "exit codes must be distinct: {codes:?}");
+    }
 
     #[test]
     fn test_error_to_json_api() {
