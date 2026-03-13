@@ -193,11 +193,7 @@ mod tests {
                     .value_name("N"),
             )
             .arg(Arg::new("query").long("query").value_name("QUERY"))
-            .arg(
-                Arg::new("labels")
-                    .long("labels")
-                    .action(ArgAction::SetTrue),
-            )
+            .arg(Arg::new("labels").long("labels").action(ArgAction::SetTrue))
             .arg(Arg::new("format").long("format").value_name("FMT"))
     }
 
