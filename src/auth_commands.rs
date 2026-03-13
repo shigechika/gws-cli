@@ -549,18 +549,23 @@ fn scope_matches_service(scope_url: &str, services: &HashSet<String>) -> bool {
     let prefix = short.split('.').next().unwrap_or(short);
 
     services.iter().any(|svc| {
-        let mapped_svc = map_service_to_scope_prefix(svc);
-        prefix == mapped_svc || short.starts_with(&format!("{mapped_svc}."))
+        let prefixes = map_service_to_scope_prefixes(svc);
+        prefixes
+            .iter()
+            .any(|mapped| prefix == *mapped || short.starts_with(&format!("{mapped}.")))
     })
 }
 
 /// Map user-friendly service names to their OAuth scope prefixes.
-fn map_service_to_scope_prefix(service: &str) -> &str {
+/// Some services map to multiple scope prefixes (e.g. People API uses
+/// both `contacts` and `directory` scopes).
+fn map_service_to_scope_prefixes(service: &str) -> Vec<&str> {
     match service {
-        "sheets" => "spreadsheets",
-        "slides" => "presentations",
-        "docs" => "documents",
-        s => s,
+        "sheets" => vec!["spreadsheets"],
+        "slides" => vec!["presentations"],
+        "docs" => vec!["documents"],
+        "people" => vec!["contacts", "directory"],
+        s => vec![s],
     }
 }
 
@@ -1344,8 +1349,11 @@ fn find_unmatched_services(scopes: &[String], services: &HashSet<String>) -> Has
             if matched_services.contains(service) {
                 continue;
             }
-            let mapped_svc = map_service_to_scope_prefix(service);
-            if prefix == mapped_svc || short.starts_with(&format!("{mapped_svc}.")) {
+            let prefixes = map_service_to_scope_prefixes(service);
+            if prefixes
+                .iter()
+                .any(|mapped| prefix == *mapped || short.starts_with(&format!("{mapped}.")))
+            {
                 matched_services.insert(service.clone());
             }
         }
@@ -1923,6 +1931,40 @@ mod tests {
         let services: HashSet<String> = ["drive"].iter().map(|s| s.to_string()).collect();
         assert!(!scope_matches_service(
             "https://www.googleapis.com/auth/driveactivity",
+            &services
+        ));
+    }
+
+    #[test]
+    fn scope_matches_service_people_contacts() {
+        let services: HashSet<String> = ["people"].iter().map(|s| s.to_string()).collect();
+        assert!(scope_matches_service(
+            "https://www.googleapis.com/auth/contacts",
+            &services
+        ));
+        assert!(scope_matches_service(
+            "https://www.googleapis.com/auth/contacts.readonly",
+            &services
+        ));
+        assert!(scope_matches_service(
+            "https://www.googleapis.com/auth/contacts.other.readonly",
+            &services
+        ));
+        assert!(scope_matches_service(
+            "https://www.googleapis.com/auth/directory.readonly",
+            &services
+        ));
+    }
+
+    #[test]
+    fn scope_matches_service_chat() {
+        let services: HashSet<String> = ["chat"].iter().map(|s| s.to_string()).collect();
+        assert!(scope_matches_service(
+            "https://www.googleapis.com/auth/chat.spaces",
+            &services
+        ));
+        assert!(scope_matches_service(
+            "https://www.googleapis.com/auth/chat.messages",
             &services
         ));
     }
