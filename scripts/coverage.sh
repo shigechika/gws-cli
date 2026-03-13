@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
+set -euo pipefail
 
 # Check if cargo-llvm-cov is installed
 if ! cargo llvm-cov --version &> /dev/null; then

@@ -49,7 +49,7 @@
             description = cargoToml.package.description;
             homepage = cargoToml.package.homepage;
             license = licenses.asl20;
-            maintainers = [{ name = "Justin Poehnelt"; email = "justin.poehnelt@mgail.com"; }];
+            maintainers = [{ name = "Justin Poehnelt"; email = "justin.poehnelt@gmail.com"; }];
             mainProgram = "gws";
           };
         };
