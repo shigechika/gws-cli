@@ -191,7 +191,8 @@ async fn build_http_request(
             })?;
 
             request = request.query(&[("uploadType", "multipart")]);
-            let media_mime = resolve_upload_mime(upload_content_type, Some(upload_path), &input.body);
+            let media_mime =
+                resolve_upload_mime(upload_content_type, Some(upload_path), &input.body);
             let (multipart_body, content_type) =
                 build_multipart_body(&input.body, &file_bytes, &media_mime)?;
             request = request.header("Content-Type", content_type);
@@ -817,17 +818,11 @@ fn mime_from_extension(path: &str) -> Option<&'static str> {
         "gif" => Some("image/gif"),
         "svg" => Some("image/svg+xml"),
         "doc" => Some("application/msword"),
-        "docx" => Some(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         "xls" => Some("application/vnd.ms-excel"),
-        "xlsx" => Some(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         "ppt" => Some("application/vnd.ms-powerpoint"),
-        "pptx" => Some(
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         _ => None,
     }
 }
@@ -1288,8 +1283,7 @@ mod tests {
         let metadata = Some(json!({ "name": "test.txt", "mimeType": "text/plain" }));
         let content = b"Hello world";
 
-        let (body, content_type) =
-            build_multipart_body(&metadata, content, "text/plain").unwrap();
+        let (body, content_type) = build_multipart_body(&metadata, content, "text/plain").unwrap();
 
         // Check content type has boundary
         assert!(content_type.starts_with("multipart/related; boundary="));
@@ -1368,8 +1362,7 @@ mod tests {
     #[test]
     fn test_resolve_upload_mime_explicit_enables_import_conversion() {
         let metadata = Some(json!({ "mimeType": "application/vnd.google-apps.document" }));
-        let mime =
-            resolve_upload_mime(Some("text/markdown"), Some("impact.md"), &metadata);
+        let mime = resolve_upload_mime(Some("text/markdown"), Some("impact.md"), &metadata);
         assert_eq!(
             mime, "text/markdown",
             "--upload-content-type overrides metadata for media part"
