@@ -13,6 +13,10 @@
 // limitations under the License.
 
 //! Gmail `+triage` helper — lists unread messages with sender, subject, date.
+//!
+//! Read-only: fetches unread message metadata (From, Subject, Date) and
+//! optionally includes label IDs. Supports custom Gmail search queries
+//! via `--query` and configurable result limits via `--max`.
 
 use super::*;
 
@@ -172,4 +176,115 @@ pub async fn handle_triage(matches: &ArgMatches) -> Result<(), GwsError> {
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{Arg, ArgAction, Command};
+
+    /// Build a clap command matching the +triage definition so we can
+    /// unit-test argument parsing without needing a live GmailHelper.
+    fn triage_cmd() -> Command {
+        Command::new("triage")
+            .arg(
+                Arg::new("max")
+                    .long("max")
+                    .default_value("20")
+                    .value_name("N"),
+            )
+            .arg(Arg::new("query").long("query").value_name("QUERY"))
+            .arg(
+                Arg::new("labels")
+                    .long("labels")
+                    .action(ArgAction::SetTrue),
+            )
+            .arg(Arg::new("format").long("format").value_name("FMT"))
+    }
+
+    #[test]
+    fn defaults_max_to_20_and_query_to_unread() {
+        let m = triage_cmd().try_get_matches_from(["triage"]).unwrap();
+        let max: u32 = m
+            .get_one::<String>("max")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20);
+        let query = m
+            .get_one::<String>("query")
+            .map(|s| s.as_str())
+            .unwrap_or("is:unread");
+        assert_eq!(max, 20);
+        assert_eq!(query, "is:unread");
+    }
+
+    #[test]
+    fn explicit_max_overrides_default() {
+        let m = triage_cmd()
+            .try_get_matches_from(["triage", "--max", "5"])
+            .unwrap();
+        let max: u32 = m
+            .get_one::<String>("max")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20);
+        assert_eq!(max, 5);
+    }
+
+    #[test]
+    fn non_numeric_max_falls_back_to_20() {
+        let m = triage_cmd()
+            .try_get_matches_from(["triage", "--max", "abc"])
+            .unwrap();
+        let max: u32 = m
+            .get_one::<String>("max")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20);
+        assert_eq!(max, 20);
+    }
+
+    #[test]
+    fn custom_query_overrides_default() {
+        let m = triage_cmd()
+            .try_get_matches_from(["triage", "--query", "from:boss"])
+            .unwrap();
+        let query = m
+            .get_one::<String>("query")
+            .map(|s| s.as_str())
+            .unwrap_or("is:unread");
+        assert_eq!(query, "from:boss");
+    }
+
+    #[test]
+    fn labels_flag_defaults_to_false() {
+        let m = triage_cmd().try_get_matches_from(["triage"]).unwrap();
+        assert!(!m.get_flag("labels"));
+    }
+
+    #[test]
+    fn labels_flag_set_when_passed() {
+        let m = triage_cmd()
+            .try_get_matches_from(["triage", "--labels"])
+            .unwrap();
+        assert!(m.get_flag("labels"));
+    }
+
+    #[test]
+    fn format_defaults_to_table_when_absent() {
+        let m = triage_cmd().try_get_matches_from(["triage"]).unwrap();
+        let fmt = m
+            .get_one::<String>("format")
+            .map(|s| crate::formatter::OutputFormat::from_str(s))
+            .unwrap_or(crate::formatter::OutputFormat::Table);
+        assert!(matches!(fmt, crate::formatter::OutputFormat::Table));
+    }
+
+    #[test]
+    fn format_json_when_specified() {
+        let m = triage_cmd()
+            .try_get_matches_from(["triage", "--format", "json"])
+            .unwrap();
+        let fmt = m
+            .get_one::<String>("format")
+            .map(|s| crate::formatter::OutputFormat::from_str(s))
+            .unwrap_or(crate::formatter::OutputFormat::Table);
+        assert!(matches!(fmt, crate::formatter::OutputFormat::Json));
+    }
 }
