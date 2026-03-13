@@ -276,7 +276,9 @@ pub fn parse_append_args(matches: &ArgMatches) -> AppendConfig {
             // Single flat array — treat as one row
             vec![parsed]
         } else {
-            eprintln!("Warning: --json-values is not valid JSON; expected an array or array-of-arrays");
+            eprintln!(
+                "Warning: --json-values is not valid JSON; expected an array or array-of-arrays"
+            );
             Vec::new()
         }
     } else if let Some(values_str) = matches.get_one::<String>("values") {
