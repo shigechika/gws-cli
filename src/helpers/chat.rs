@@ -251,14 +251,21 @@ mod tests {
     fn test_parse_send_args_rejects_traversal_in_space() {
         let matches = make_matches_send(&["test", "--space", "../etc/passwd", "--text", "t"]);
         let result = parse_send_args(&matches);
-        assert!(result.is_err(), "space with path traversal should be rejected");
+        assert!(
+            result.is_err(),
+            "space with path traversal should be rejected"
+        );
     }
 
     #[test]
     fn test_parse_send_args_rejects_query_injection_in_space() {
-        let matches = make_matches_send(&["test", "--space", "spaces/AAA?key=injected", "--text", "t"]);
+        let matches =
+            make_matches_send(&["test", "--space", "spaces/AAA?key=injected", "--text", "t"]);
         let result = parse_send_args(&matches);
-        assert!(result.is_err(), "space with query characters should be rejected");
+        assert!(
+            result.is_err(),
+            "space with query characters should be rejected"
+        );
     }
 
     #[test]
