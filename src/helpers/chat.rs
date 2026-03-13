@@ -72,7 +72,7 @@ TIPS:
         Box::pin(async move {
             if let Some(matches) = matches.subcommand_matches("+send") {
                 // Parse arguments into our config struct config
-                let config = parse_send_args(matches);
+                let config = parse_send_args(matches)?;
                 // The `?` operator here will propagate any errors from `build_send_request`
                 // immediately, returning `Err(GwsError)` from the async block.
                 let (params_str, body_str, scopes) = build_send_request(&config, doc)?;
@@ -175,14 +175,14 @@ pub struct SendConfig {
 /// # Returns
 ///
 /// * `SendConfig` - The populated configuration struct.
-pub fn parse_send_args(matches: &ArgMatches) -> SendConfig {
-    SendConfig {
-        // We clone the strings here because ArgMatches owns the original strings,
-        // and we need to pass ownership of these values to our config struct
-        // to decouple it from the clap lifetime.
-        space: matches.get_one::<String>("space").unwrap().clone(),
+pub fn parse_send_args(matches: &ArgMatches) -> Result<SendConfig, GwsError> {
+    let space = matches.get_one::<String>("space").unwrap().clone();
+    crate::validate::validate_resource_name(&space)?;
+
+    Ok(SendConfig {
+        space,
         text: matches.get_one::<String>("text").unwrap().clone(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -241,10 +241,24 @@ mod tests {
 
     #[test]
     fn test_parse_send_args() {
-        let matches = make_matches_send(&["test", "--space", "s", "--text", "t"]);
-        let config = parse_send_args(&matches);
-        assert_eq!(config.space, "s");
+        let matches = make_matches_send(&["test", "--space", "valid-space", "--text", "t"]);
+        let config = parse_send_args(&matches).unwrap();
+        assert_eq!(config.space, "valid-space");
         assert_eq!(config.text, "t");
+    }
+
+    #[test]
+    fn test_parse_send_args_rejects_traversal_in_space() {
+        let matches = make_matches_send(&["test", "--space", "../etc/passwd", "--text", "t"]);
+        let result = parse_send_args(&matches);
+        assert!(result.is_err(), "space with path traversal should be rejected");
+    }
+
+    #[test]
+    fn test_parse_send_args_rejects_query_injection_in_space() {
+        let matches = make_matches_send(&["test", "--space", "spaces/AAA?key=injected", "--text", "t"]);
+        let result = parse_send_args(&matches);
+        assert!(result.is_err(), "space with query characters should be rejected");
     }
 
     #[test]
