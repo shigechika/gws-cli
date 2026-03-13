@@ -218,11 +218,8 @@ fn build_append_request(
         "valueInputOption": "USER_ENTERED"
     });
 
-    // We use `json!` macro to construct a generic JSON Value for the request body.
-    // This allows us to easily create nested objects without defining explicit structs
-    // for every API request body.
     let body = json!({
-        "values": [config.values]
+        "values": config.values
     });
 
     // Map `&String` scope URLs to owned `String`s for the return value
@@ -263,24 +260,27 @@ fn build_read_request(
 pub struct AppendConfig {
     /// The ID of the spreadsheet to append to.
     pub spreadsheet_id: String,
-    /// The values to append, as a vector of strings.
-    pub values: Vec<String>,
+    /// The rows to append, where each inner Vec represents one row.
+    pub values: Vec<Vec<String>>,
 }
 
 /// Parses arguments for the `+append` command.
 ///
-/// Splits the comma-separated `values` argument into a `Vec<String>`.
+/// Supports both `--values` (single row) and `--json-values` (single or multi-row).
 pub fn parse_append_args(matches: &ArgMatches) -> AppendConfig {
     let values = if let Some(json_str) = matches.get_one::<String>("json-values") {
-        // Parse JSON array of rows
+        // Try parsing as array-of-arrays (multi-row) first
         if let Ok(parsed) = serde_json::from_str::<Vec<Vec<String>>>(json_str) {
-            parsed.into_iter().flatten().collect()
+            parsed
+        } else if let Ok(parsed) = serde_json::from_str::<Vec<String>>(json_str) {
+            // Single flat array — treat as one row
+            vec![parsed]
         } else {
-            // Treat as single row JSON array
-            serde_json::from_str::<Vec<String>>(json_str).unwrap_or_default()
+            eprintln!("Warning: --json-values is not valid JSON; expected an array or array-of-arrays");
+            Vec::new()
         }
     } else if let Some(values_str) = matches.get_one::<String>("values") {
-        values_str.split(',').map(|s| s.to_string()).collect()
+        vec![values_str.split(',').map(|s| s.to_string()).collect()]
     } else {
         Vec::new()
     };
@@ -365,7 +365,7 @@ mod tests {
         let doc = make_mock_doc();
         let config = AppendConfig {
             spreadsheet_id: "123".to_string(),
-            values: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            values: vec![vec!["a".to_string(), "b".to_string(), "c".to_string()]],
         };
         let (params, body, scopes) = build_append_request(&config, &doc).unwrap();
 
@@ -391,11 +391,58 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_append_args() {
+    fn test_parse_append_args_values() {
         let matches = make_matches_append(&["test", "--spreadsheet", "123", "--values", "a,b,c"]);
         let config = parse_append_args(&matches);
         assert_eq!(config.spreadsheet_id, "123");
-        assert_eq!(config.values, vec!["a", "b", "c"]);
+        assert_eq!(config.values, vec![vec!["a", "b", "c"]]);
+    }
+
+    #[test]
+    fn test_parse_append_args_json_single_row() {
+        let matches = make_matches_append(&[
+            "test",
+            "--spreadsheet",
+            "123",
+            "--json-values",
+            r#"["a","b","c"]"#,
+        ]);
+        let config = parse_append_args(&matches);
+        assert_eq!(config.values, vec![vec!["a", "b", "c"]]);
+    }
+
+    #[test]
+    fn test_parse_append_args_json_multi_row() {
+        let matches = make_matches_append(&[
+            "test",
+            "--spreadsheet",
+            "123",
+            "--json-values",
+            r#"[["Alice","100"],["Bob","200"]]"#,
+        ]);
+        let config = parse_append_args(&matches);
+        assert_eq!(
+            config.values,
+            vec![vec!["Alice", "100"], vec!["Bob", "200"]]
+        );
+    }
+
+    #[test]
+    fn test_build_append_request_multi_row() {
+        let doc = make_mock_doc();
+        let config = AppendConfig {
+            spreadsheet_id: "123".to_string(),
+            values: vec![
+                vec!["Alice".to_string(), "100".to_string()],
+                vec!["Bob".to_string(), "200".to_string()],
+            ],
+        };
+        let (_params, body, _scopes) = build_append_request(&config, &doc).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let values = parsed["values"].as_array().unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], json!(["Alice", "100"]));
+        assert_eq!(values[1], json!(["Bob", "200"]));
     }
 
     #[test]
