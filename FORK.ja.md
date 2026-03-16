@@ -79,6 +79,14 @@ cargo build --release
 }
 ```
 
+## upstream MCP 定点観測
+
+| 時期 | 出来事 |
+|---|---|
+| 2026-03 | `fix!: Remove MCP server mode` — upstream が breaking change として MCP サーバーを削除 |
+| 2026-03 | ブランチ `fix/mcp-hyphen-tool-names` が upstream に出現 — ツール名ハイフン化で MCP 復活の兆し |
+| 2026-03 | 同ブランチがマージされずに削除 — upstream での MCP 復活は見送り |
+
 ## upstream 同期方針
 
 - 毎週月曜に GitHub Actions で upstream/main を自動マージ

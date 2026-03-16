@@ -79,6 +79,14 @@ cargo build --release
 }
 ```
 
+## Upstream MCP timeline
+
+| Date | Event |
+|---|---|
+| 2026-03 | `fix!: Remove MCP server mode` — MCP server removed from upstream as a breaking change |
+| 2026-03 | Branch `fix/mcp-hyphen-tool-names` appeared in upstream — looked like MCP might return with hyphenated tool names |
+| 2026-03 | Branch `fix/mcp-hyphen-tool-names` deleted without being merged — MCP remains absent from upstream |
+
 ## Upstream sync policy
 
 - Weekly auto-merge from upstream/main via GitHub Actions (every Monday)
