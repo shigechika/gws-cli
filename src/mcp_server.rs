@@ -484,6 +484,7 @@ async fn handle_gmail_send(arguments: &Value) -> Result<Value, GwsError> {
         cc,
         bcc,
         threading: None,
+        html: false,
     }
     .build(body_text);
 
@@ -522,6 +523,7 @@ async fn handle_gmail_send(arguments: &Value) -> Result<Value, GwsError> {
         Some(&body_str),
         token.as_deref(),
         auth_method,
+        None,
         None,
         None,
         false,
@@ -972,6 +974,7 @@ async fn execute_mcp_method(
         auth_method,
         None,
         upload_path,
+        None,
         false,
         &pagination,
         None,

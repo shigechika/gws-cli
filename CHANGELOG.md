@@ -1,5 +1,132 @@
 # @googleworkspace/cli
 
+## 0.16.0
+
+### Minor Changes
+
+- 47afe5f: Use Google account timezone instead of machine-local time for day-boundary calculations in calendar and workflow helpers. Adds `--timezone` flag to `+agenda` for explicit override. Timezone is fetched from Calendar Settings API and cached for 24 hours.
+
+### Patch Changes
+
+- c61b9cb: fix(gmail): RFC 2047 encode non-ASCII display names in To/From/Cc/Bcc headers
+
+  Fixes mojibake when sending emails to recipients with non-ASCII display names (e.g. Japanese, Spanish accented characters). The new `encode_address_header()` function parses mailbox lists, encodes only the display-name portion via RFC 2047 Base64, and leaves email addresses untouched.
+
+## 0.15.0
+
+### Minor Changes
+
+- 6f3e090: Add opt-in structured HTTP request logging via `tracing`
+
+  New environment variables:
+
+  - `GOOGLE_WORKSPACE_CLI_LOG`: stderr log filter (e.g., `gws=debug`)
+  - `GOOGLE_WORKSPACE_CLI_LOG_FILE`: directory for JSON log files with daily rotation
+
+  Logging is completely silent by default (zero overhead). Only PII-free metadata is logged: API method ID, HTTP method, status code, latency, and content-type.
+
+## 0.14.0
+
+### Minor Changes
+
+- dc561e0: Add `--upload-content-type` flag and smart MIME inference for multipart uploads
+
+  Previously, multipart uploads used the metadata `mimeType` field for both the Drive
+  metadata and the media part's `Content-Type` header. This made it impossible to upload
+  a file in one format (e.g. Markdown) and have Drive convert it to another (e.g. Google Docs),
+  because the media `Content-Type` and the target `mimeType` must differ for import conversions.
+
+  The new `--upload-content-type` flag allows setting the media `Content-Type` explicitly.
+  When omitted, the media type is now inferred from the file extension before falling back
+  to the metadata `mimeType`. This matches Google Drive's model where metadata `mimeType`
+  is the _target_ type (what the file should become) while the media `Content-Type` is the
+  _source_ type (what the bytes are).
+
+  This means import conversions now work automatically:
+
+  ```bash
+  # Extension inference detects text/markdown → conversion just works
+  gws drive files create \
+    --json '{"name":"My Doc","mimeType":"application/vnd.google-apps.document"}' \
+    --upload notes.md
+
+  # Explicit flag still available as an override
+  gws drive files create \
+    --json '{"name":"My Doc","mimeType":"application/vnd.google-apps.document"}' \
+    --upload notes.md \
+    --upload-content-type text/markdown
+  ```
+
+### Patch Changes
+
+- 945ac91: Stream multipart uploads to avoid OOM on large files. File content is now streamed in chunks via `ReaderStream` instead of being read entirely into memory, reducing memory usage from O(file_size) to O(64 KB).
+
+## 0.13.3
+
+### Patch Changes
+
+- 8ef27a2: fix(calendar): use local timezone for agenda day boundaries instead of UTC
+- 4d7b420: Fix `+append --json-values` flattening multi-row arrays into a single row by preserving the `Vec<Vec<String>>` row structure through to the API request body
+- bb94016: fix(security): validate space name in chat +send to prevent path traversal
+- 4b827cd: chore: fix maintainer email typo in flake.nix and harden coverage.sh
+- 44767ed: Map People service to `contacts` and `directory` scope prefixes so `gws auth login -s people` includes the required OAuth scopes
+- 8fce003: fix(docs): correct flag names in recipes (--spreadsheet-id, --attendees, --duration)
+- 21b1840: Expose `repeated: true` in `gws schema` output and expand JSON arrays into repeated query parameters for `repeated` fields
+- 1346d47: Sync generated skills with latest Google Discovery API specs
+- 957b999: test(gmail): add unit tests for +triage argument parsing and format selection
+
+## 0.13.2
+
+### Patch Changes
+
+- 3dcf818: Refresh OAuth access tokens for long-running Gmail watch and Workspace Events subscribe helpers before each Pub/Sub and Gmail request.
+- 86ea6de: Validate `--subscription` resource name in `gmail +watch` and deduplicate `PUBSUB_API_BASE` constant.
+
+## 0.13.1
+
+### Patch Changes
+
+- 510024f: Centralize token cache filenames as constants and support ServiceAccount credentials at the default plaintext path
+- 510024f: Auto-recover from stale encrypted credentials after upgrade: remove undecryptable `credentials.enc` and fall through to other credential sources (plaintext, ADC) instead of hard-erroring. Also sync encryption key file backup when keyring has key but file is missing.
+- e104106: Add shell tips section to gws-shared skill warning about zsh `!` history expansion, and replace single quotes with double quotes around sheet ranges containing `!` in recipes and skill examples
+
+## 0.13.0
+
+### Minor Changes
+
+- 9d937af: Add `--html` flag to `+send`, `+reply`, `+reply-all`, and `+forward` for HTML email composition.
+
+### Patch Changes
+
+- 2df32ee: Document helper commands (`+` prefix) in README
+
+  Adds a "Helper Commands" section to the Advanced Usage chapter explaining
+  the `+` prefix convention, listing all 24 helper commands across 10 services
+  with descriptions and usage examples.
+
+## 0.12.0
+
+### Minor Changes
+
+- 247e27a: Add structured exit codes for scriptable error handling
+
+  `gws` now exits with a type-specific code instead of always using `1`:
+
+  | Code | Meaning                                                         |
+  | ---- | --------------------------------------------------------------- |
+  | `0`  | Success                                                         |
+  | `1`  | API error — Google returned a 4xx/5xx response                  |
+  | `2`  | Auth error — credentials missing, expired, or invalid           |
+  | `3`  | Validation error — bad arguments, unknown service, invalid flag |
+  | `4`  | Discovery error — could not fetch the API schema document       |
+  | `5`  | Internal error — unexpected failure                             |
+
+  Exit codes are documented in `gws --help` and in the README.
+
+### Patch Changes
+
+- 087066f: Fix `gws auth login` encrypted credential persistence by enabling native keyring backends for the `keyring` crate on supported desktop platforms instead of silently falling back to the in-memory mock store.
+
 ## 0.11.1
 
 ### Patch Changes

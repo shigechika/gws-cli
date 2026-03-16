@@ -31,6 +31,7 @@ mod formatter;
 mod fs_util;
 mod generate_skills;
 mod helpers;
+mod logging;
 mod mcp_server;
 mod oauth_config;
 mod schema;
@@ -38,6 +39,7 @@ mod services;
 mod setup;
 mod setup_tui;
 mod text;
+mod timezone;
 mod token_storage;
 pub(crate) mod validate;
 
@@ -48,9 +50,12 @@ async fn main() {
     // Load .env file if present (silently ignored if missing)
     let _ = dotenvy::dotenv();
 
+    // Initialize structured logging (no-op if env vars are unset)
+    logging::init_logging();
+
     if let Err(err) = run().await {
         print_error_json(&err);
-        std::process::exit(1);
+        std::process::exit(err.exit_code());
     }
 }
 
@@ -222,6 +227,11 @@ async fn run() -> Result<(), GwsError> {
         .ok()
         .flatten()
         .map(|s| s.as_str());
+    let upload_content_type = matched_args
+        .try_get_one::<String>("upload-content-type")
+        .ok()
+        .flatten()
+        .map(|s| s.as_str());
 
     let dry_run = matched_args.get_flag("dry-run");
 
@@ -260,6 +270,7 @@ async fn run() -> Result<(), GwsError> {
         auth_method,
         output_path,
         upload_path,
+        upload_content_type,
         dry_run,
         &pagination,
         sanitize_config.template.as_deref(),
@@ -427,6 +438,7 @@ fn print_usage() {
     println!("    --params <JSON>       URL/Query parameters as JSON");
     println!("    --json <JSON>         Request body as JSON (POST/PATCH/PUT)");
     println!("    --upload <PATH>       Local file to upload as media content (multipart)");
+    println!("    --upload-content-type <MIME>  MIME type of the uploaded file (auto-detected from extension if omitted)");
     println!("    --output <PATH>       Output file path for binary responses");
     println!("    --format <FMT>        Output format: json (default), table, yaml, csv");
     println!("    --api-version <VER>   Override the API version (e.g., v2, v3)");
@@ -465,6 +477,15 @@ fn print_usage() {
     println!(
         "    GOOGLE_WORKSPACE_PROJECT_ID              Override the GCP project ID for quota and billing"
     );
+    println!("    GOOGLE_WORKSPACE_CLI_LOG                 Log level for stderr (e.g., gws=debug)");
+    println!(
+        "    GOOGLE_WORKSPACE_CLI_LOG_FILE            Directory for JSON log files (daily rotation)"
+    );
+    println!();
+    println!("EXIT CODES:");
+    for (code, description) in crate::error::EXIT_CODE_DOCUMENTATION {
+        println!("    {:<5}{}", code, description);
+    }
     println!();
     println!("COMMUNITY:");
     println!("    Star the repo: https://github.com/googleworkspace/cli");

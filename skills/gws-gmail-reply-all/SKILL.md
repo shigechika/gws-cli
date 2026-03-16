@@ -27,12 +27,13 @@ gws gmail +reply-all --message-id <ID> --body <TEXT>
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--message-id` | ✓ | — | Gmail message ID to reply to |
-| `--body` | ✓ | — | Reply body (plain text) |
+| `--body` | ✓ | — | Reply body (plain text, or HTML with --html) |
 | `--from` | — | — | Sender address (for send-as/alias; omit to use account default) |
 | `--to` | — | — | Additional To email address(es), comma-separated |
 | `--cc` | — | — | Additional CC email address(es), comma-separated |
 | `--bcc` | — | — | BCC email address(es), comma-separated |
 | `--remove` | — | — | Exclude recipients from the outgoing reply (comma-separated emails) |
+| `--html` | — | — | Send as HTML (quotes original with Gmail styling; treat --body as HTML) |
 | `--dry-run` | — | — | Show the request that would be sent without executing it |
 
 ## Examples
@@ -43,6 +44,7 @@ gws gmail +reply-all --message-id 18f1a2b3c4d --body 'Updated' --remove bob@exam
 gws gmail +reply-all --message-id 18f1a2b3c4d --body 'Adding Eve' --cc eve@example.com
 gws gmail +reply-all --message-id 18f1a2b3c4d --body 'Adding Dave' --to dave@example.com
 gws gmail +reply-all --message-id 18f1a2b3c4d --body 'Reply' --bcc secret@example.com
+gws gmail +reply-all --message-id 18f1a2b3c4d --body '<i>Noted</i>' --html
 ```
 
 ## Tips

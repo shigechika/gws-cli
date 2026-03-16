@@ -77,6 +77,73 @@ enum Credential {
     ServiceAccount(yup_oauth2::ServiceAccountKey),
 }
 
+/// Fetches access tokens for a fixed set of scopes.
+///
+/// Long-running helpers use this trait so they can request a fresh token before
+/// each API call instead of holding a single token string until it expires.
+#[async_trait::async_trait]
+pub trait AccessTokenProvider: Send + Sync {
+    async fn access_token(&self) -> anyhow::Result<String>;
+}
+
+/// A token provider backed by [`get_token`].
+///
+/// This keeps the scope list in one place so call sites can ask for a fresh
+/// token whenever they need to make another request.
+#[derive(Debug, Clone)]
+pub struct ScopedTokenProvider {
+    scopes: Vec<String>,
+}
+
+impl ScopedTokenProvider {
+    pub fn new(scopes: &[&str]) -> Self {
+        Self {
+            scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AccessTokenProvider for ScopedTokenProvider {
+    async fn access_token(&self) -> anyhow::Result<String> {
+        let scopes: Vec<&str> = self.scopes.iter().map(String::as_str).collect();
+        get_token(&scopes).await
+    }
+}
+
+pub fn token_provider(scopes: &[&str]) -> ScopedTokenProvider {
+    ScopedTokenProvider::new(scopes)
+}
+
+/// A fake [`AccessTokenProvider`] for tests that returns tokens from a queue.
+#[cfg(test)]
+pub struct FakeTokenProvider {
+    tokens: std::sync::Arc<tokio::sync::Mutex<std::collections::VecDeque<String>>>,
+}
+
+#[cfg(test)]
+impl FakeTokenProvider {
+    pub fn new(tokens: impl IntoIterator<Item = &'static str>) -> Self {
+        Self {
+            tokens: std::sync::Arc::new(tokio::sync::Mutex::new(
+                tokens.into_iter().map(|t| t.to_string()).collect(),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl AccessTokenProvider for FakeTokenProvider {
+    async fn access_token(&self) -> anyhow::Result<String> {
+        self.tokens
+            .lock()
+            .await
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("no test token remaining"))
+    }
+}
+
 /// Builds an OAuth2 authenticator and returns an access token.
 ///
 /// Tries credentials in order:
@@ -205,36 +272,45 @@ async fn load_credentials_inner(
         );
     }
 
-    // 2. Encrypted credentials (always AuthorizedUser for now)
+    // 2. Encrypted credentials
     if enc_path.exists() {
-        let json_str = credential_store::load_encrypted_from_path(enc_path)
-            .context("Failed to decrypt credentials")?;
-
-        let creds: serde_json::Value =
-            serde_json::from_str(&json_str).context("Failed to parse decrypted credentials")?;
-
-        let client_id = creds["client_id"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing client_id in encrypted credentials"))?;
-        let client_secret = creds["client_secret"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing client_secret in encrypted credentials"))?;
-        // refresh_token is optional now in some flows, but strictly required for this storage format
-        let refresh_token = creds["refresh_token"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing refresh_token in encrypted credentials"))?;
-
-        return Ok(Credential::AuthorizedUser(
-            yup_oauth2::authorized_user::AuthorizedUserSecret {
-                client_id: client_id.to_string(),
-                client_secret: client_secret.to_string(),
-                refresh_token: refresh_token.to_string(),
-                key_type: "authorized_user".to_string(),
-            },
-        ));
+        match credential_store::load_encrypted_from_path(enc_path) {
+            Ok(json_str) => {
+                return parse_credential_file(enc_path, &json_str).await;
+            }
+            Err(e) => {
+                // Decryption failed — the encryption key likely changed (e.g. after
+                // an upgrade that migrated keys between keyring and file storage).
+                // Remove the stale file so the next `gws auth login` starts fresh,
+                // and fall through to other credential sources (plaintext, ADC).
+                eprintln!(
+                    "Warning: removing undecryptable credentials file ({}): {e:#}",
+                    enc_path.display()
+                );
+                if let Err(err) = tokio::fs::remove_file(enc_path).await {
+                    eprintln!(
+                        "Warning: failed to remove stale credentials file '{}': {err}",
+                        enc_path.display()
+                    );
+                }
+                // Also remove stale token caches that used the old key.
+                for cache_file in ["token_cache.json", "sa_token_cache.json"] {
+                    let path = enc_path.with_file_name(cache_file);
+                    if let Err(err) = tokio::fs::remove_file(&path).await {
+                        if err.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!(
+                                "Warning: failed to remove stale token cache '{}': {err}",
+                                path.display()
+                            );
+                        }
+                    }
+                }
+                // Fall through to remaining credential sources below.
+            }
+        }
     }
 
-    // 3. Plaintext credentials at default path (Default to AuthorizedUser)
+    // 3. Plaintext credentials at default path (AuthorizedUser)
     if default_path.exists() {
         return Ok(Credential::AuthorizedUser(
             yup_oauth2::read_authorized_user_secret(default_path)
@@ -545,6 +621,19 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
+    async fn test_scoped_token_provider_uses_get_token() {
+        let _token_guard = EnvVarGuard::set("GOOGLE_WORKSPACE_CLI_TOKEN", "provider-token");
+        let provider = token_provider(&["https://www.googleapis.com/auth/drive"]);
+
+        let first = provider.access_token().await.unwrap();
+        let second = provider.access_token().await.unwrap();
+
+        assert_eq!(first, "provider-token");
+        assert_eq!(second, "provider-token");
+    }
+
+    #[tokio::test]
     async fn test_load_credentials_encrypted_file() {
         // Simulate an encrypted credentials file
         let json = r#"{
@@ -612,6 +701,79 @@ mod tests {
             }
             _ => panic!("Expected AuthorizedUser"),
         }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_load_credentials_corrupt_encrypted_file_is_removed() {
+        // When credentials.enc cannot be decrypted, the file should be removed
+        // automatically and the function should fall through to other sources.
+        let tmp = tempfile::tempdir().unwrap();
+        let _home_guard = EnvVarGuard::set("HOME", tmp.path());
+        let _adc_guard = EnvVarGuard::remove("GOOGLE_APPLICATION_CREDENTIALS");
+
+        let dir = tempfile::tempdir().unwrap();
+        let enc_path = dir.path().join("credentials.enc");
+
+        // Write garbage data that cannot be decrypted.
+        tokio::fs::write(&enc_path, b"not-valid-encrypted-data-at-all-1234567890")
+            .await
+            .unwrap();
+        assert!(enc_path.exists());
+
+        let result =
+            load_credentials_inner(None, &enc_path, &PathBuf::from("/does/not/exist")).await;
+
+        // Should fall through to "No credentials found" (not a decryption error).
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("No credentials found"),
+            "Should fall through to final error, got: {msg}"
+        );
+        assert!(
+            !enc_path.exists(),
+            "Stale credentials.enc must be removed after decryption failure"
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_load_credentials_corrupt_encrypted_falls_through_to_plaintext() {
+        // When credentials.enc is corrupt but a valid plaintext file exists,
+        // the function should fall through and use the plaintext credentials.
+        let dir = tempfile::tempdir().unwrap();
+        let enc_path = dir.path().join("credentials.enc");
+        let plain_path = dir.path().join("credentials.json");
+
+        // Write garbage encrypted data.
+        tokio::fs::write(&enc_path, b"not-valid-encrypted-data-at-all-1234567890")
+            .await
+            .unwrap();
+
+        // Write valid plaintext credentials.
+        let plain_json = r#"{
+            "client_id": "fallback_id",
+            "client_secret": "fallback_secret",
+            "refresh_token": "fallback_refresh",
+            "type": "authorized_user"
+        }"#;
+        tokio::fs::write(&plain_path, plain_json).await.unwrap();
+
+        let res = load_credentials_inner(None, &enc_path, &plain_path)
+            .await
+            .unwrap();
+
+        match res {
+            Credential::AuthorizedUser(secret) => {
+                assert_eq!(
+                    secret.client_id, "fallback_id",
+                    "Should fall through to plaintext credentials"
+                );
+            }
+            _ => panic!("Expected AuthorizedUser from plaintext fallback"),
+        }
+        assert!(!enc_path.exists(), "Stale credentials.enc must be removed");
     }
 
     #[tokio::test]

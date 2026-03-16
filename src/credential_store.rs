@@ -221,6 +221,15 @@ fn resolve_key(
                     if decoded.len() == 32 {
                         let mut arr = [0u8; 32];
                         arr.copy_from_slice(&decoded);
+                        // Ensure file backup stays in sync with keyring so
+                        // credentials survive keyring loss (e.g. after OS
+                        // upgrades, container restarts, daemon changes).
+                        if let Err(err) = save_key_file(key_file, &b64_key) {
+                            eprintln!(
+                                "Warning: failed to sync keyring backup file at '{}': {err}",
+                                key_file.display()
+                            );
+                        }
                         return Ok(arr);
                     }
                 }
@@ -436,6 +445,7 @@ mod tests {
         get_state: MockState,
         set_succeeds: bool,
         last_set: RefCell<Option<String>>,
+        on_set: RefCell<Option<Box<dyn FnMut(&str)>>>,
     }
 
     impl MockKeyring {
@@ -444,6 +454,7 @@ mod tests {
                 get_state: MockState::Ok(b64.to_string()),
                 set_succeeds: true,
                 last_set: RefCell::new(None),
+                on_set: RefCell::new(None),
             }
         }
 
@@ -452,6 +463,7 @@ mod tests {
                 get_state: MockState::NoEntry,
                 set_succeeds: true,
                 last_set: RefCell::new(None),
+                on_set: RefCell::new(None),
             }
         }
 
@@ -460,11 +472,20 @@ mod tests {
                 get_state: MockState::PlatformError,
                 set_succeeds: true,
                 last_set: RefCell::new(None),
+                on_set: RefCell::new(None),
             }
         }
 
         fn with_set_failure(mut self) -> Self {
             self.set_succeeds = false;
+            self
+        }
+
+        fn with_on_set<F>(self, callback: F) -> Self
+        where
+            F: FnMut(&str) + 'static,
+        {
+            *self.on_set.borrow_mut() = Some(Box::new(callback));
             self
         }
     }
@@ -482,6 +503,9 @@ mod tests {
 
         fn set_password(&self, password: &str) -> Result<(), keyring::Error> {
             *self.last_set.borrow_mut() = Some(password.to_string());
+            if let Some(callback) = self.on_set.borrow_mut().as_mut() {
+                callback(password);
+            }
             if self.set_succeeds {
                 Ok(())
             } else {
@@ -512,13 +536,43 @@ mod tests {
     }
 
     #[test]
-    fn keyring_backend_keeps_file_when_keyring_succeeds() {
+    fn keyring_backend_creates_file_backup_when_missing() {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         let dir = tempfile::tempdir().unwrap();
-        let (_, key_file) = write_test_key(dir.path());
-        let mock = MockKeyring::with_password(&STANDARD.encode([7u8; 32]));
-        let _ = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
+        let key_file = dir.path().join(".encryption_key");
+        let expected = [7u8; 32];
+        let mock = MockKeyring::with_password(&STANDARD.encode(expected));
+        assert!(!key_file.exists(), "file must not exist before test");
+        let result = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
+        assert_eq!(result, expected);
+        assert!(
+            key_file.exists(),
+            "file backup must be created when keyring succeeds but file is missing"
+        );
+        let file_key = read_key_file(&key_file).unwrap();
+        assert_eq!(
+            file_key, expected,
+            "file backup must contain the keyring key"
+        );
+    }
+
+    #[test]
+    fn keyring_backend_syncs_file_when_keyring_differs() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let dir = tempfile::tempdir().unwrap();
+        // Write a file with one key, but put a different key in the keyring.
+        let (file_key, key_file) = write_test_key(dir.path());
+        let keyring_key = [7u8; 32];
+        assert_ne!(file_key, keyring_key, "keys must differ for this test");
+        let mock = MockKeyring::with_password(&STANDARD.encode(keyring_key));
+        let result = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
+        assert_eq!(result, keyring_key, "should return keyring key");
         assert!(key_file.exists(), "file must NOT be deleted");
+        let synced = read_key_file(&key_file).unwrap();
+        assert_eq!(
+            synced, keyring_key,
+            "file must be updated to match keyring key"
+        );
     }
 
     #[test]
@@ -831,19 +885,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let key_file = dir.path().join(".encryption_key");
 
-        // Simulate: file was created by another process between our generate
-        // and our save_key_file_exclusive call. We pre-create the file so
-        // save_key_file_exclusive will fail with AlreadyExists.
         let winner_key = [77u8; 32];
-        std::fs::write(&key_file, STANDARD.encode(winner_key)).unwrap();
+        let winner_b64 = STANDARD.encode(winner_key);
+        let race_key_file = key_file.clone();
+        let race_winner_b64 = winner_b64.clone();
 
-        // Use NoEntry so resolve_key goes into the generate path.
-        let mock = MockKeyring::no_entry();
+        let mock = MockKeyring::no_entry().with_on_set(move |_| {
+            if !race_key_file.exists() {
+                std::fs::write(&race_key_file, &race_winner_b64).unwrap();
+            }
+        });
         let result = resolve_key(KeyringBackend::Keyring, &mock, &key_file).unwrap();
 
-        // Should return the winner's key, not the one we generated.
         assert_eq!(result, winner_key);
-        // The keyring should have been synced with the winner's key.
         let synced = mock.last_set.borrow().clone().unwrap();
         assert_eq!(STANDARD.decode(&synced).unwrap(), winner_key);
     }

@@ -34,6 +34,7 @@ npm install -g @googleworkspace/cli
 - [MCP Server](#mcp-server)
 - [Advanced Usage](#advanced-usage)
 - [Environment Variables](#environment-variables)
+- [Exit Codes](#exit-codes)
 - [Architecture](#architecture)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -65,6 +66,12 @@ A Nix flake is also available at `github:googleworkspace/cli`
 
 ```bash
 nix run github:googleworkspace/cli
+```
+
+On macOS and Linux, you can also install via [Homebrew](https://brew.sh/):
+
+```bash
+brew install googleworkspace-cli
 ```
 
 ## Quick Start
@@ -319,6 +326,74 @@ gws sheets spreadsheets values append \
   --json '{"values": [["Name", "Score"], ["Alice", 95]]}'
 ```
 
+### Helper Commands
+
+Some services ship hand-crafted helper commands alongside the auto-generated Discovery surface. Helper commands are prefixed with `+` so they are visually distinct and never collide with Discovery-generated method names.
+
+Time-aware helpers (`+agenda`, `+standup-report`, `+weekly-digest`, `+meeting-prep`) automatically use your **Google account timezone** (fetched from Calendar Settings API and cached for 24 hours). Override with `--timezone`/`--tz` on `+agenda`, or set the `--timezone` flag for explicit control.
+
+Run `gws <service> --help` to see both Discovery methods and helper commands together.
+
+```bash
+gws gmail --help      # shows +send, +reply, +reply-all, +forward, +triage, +watch …
+gws calendar --help   # shows +insert, +agenda …
+gws drive --help      # shows +upload …
+```
+
+**Full helper reference:**
+
+| Service | Command | Description |
+|---------|---------|-------------|
+| `gmail` | `+send` | Send an email |
+| `gmail` | `+reply` | Reply to a message (handles threading automatically) |
+| `gmail` | `+reply-all` | Reply-all to a message |
+| `gmail` | `+forward` | Forward a message to new recipients |
+| `gmail` | `+triage` | Show unread inbox summary (sender, subject, date) |
+| `gmail` | `+watch` | Watch for new emails and stream them as NDJSON |
+| `sheets` | `+append` | Append a row to a spreadsheet |
+| `sheets` | `+read` | Read values from a spreadsheet |
+| `docs` | `+write` | Append text to a document |
+| `chat` | `+send` | Send a message to a space |
+| `drive` | `+upload` | Upload a file with automatic metadata |
+| `calendar` | `+insert` | Create a new event |
+| `calendar` | `+agenda` | Show upcoming events (uses Google account timezone; override with `--timezone`) |
+| `script` | `+push` | Replace all files in an Apps Script project with local files |
+| `workflow` | `+standup-report` | Today's meetings + open tasks as a standup summary |
+| `workflow` | `+meeting-prep` | Prepare for your next meeting: agenda, attendees, and linked docs |
+| `workflow` | `+email-to-task` | Convert a Gmail message into a Google Tasks entry |
+| `workflow` | `+weekly-digest` | Weekly summary: this week's meetings + unread email count |
+| `workflow` | `+file-announce` | Announce a Drive file in a Chat space |
+| `events` | `+subscribe` | Subscribe to Workspace events and stream them as NDJSON |
+| `events` | `+renew` | Renew/reactivate Workspace Events subscriptions |
+| `modelarmor` | `+sanitize-prompt` | Sanitize a user prompt through a Model Armor template |
+| `modelarmor` | `+sanitize-response` | Sanitize a model response through a Model Armor template |
+| `modelarmor` | `+create-template` | Create a new Model Armor template |
+
+**Examples:**
+
+```bash
+# Send an email
+gws gmail +send --to alice@example.com --subject "Hello" --body "Hi there"
+
+# Reply to a message
+gws gmail +reply --message-id MESSAGE_ID --body "Thanks!"
+
+# Append a row to a spreadsheet
+gws sheets +append --spreadsheet SPREADSHEET_ID --values "Alice,95"
+
+# Show today's calendar agenda
+gws calendar +agenda
+
+# Upload a file to Drive
+gws drive +upload ./report.pdf --name "Q1 Report"
+
+# Morning standup summary
+gws workflow +standup-report
+
+# Show today's agenda in a specific timezone
+gws calendar +agenda --today --timezone America/New_York
+```
+
 ### Model Armor (Response Sanitization)
 
 Integrate [Google Cloud Model Armor](https://cloud.google.com/security/products/model-armor) to scan API responses for prompt injection before they reach your agent.
@@ -347,9 +422,32 @@ All variables are optional. See [`.env.example`](.env.example) for a copy-paste 
 | `GOOGLE_WORKSPACE_CLI_CONFIG_DIR` | Override config directory (default: `~/.config/gws`) |
 | `GOOGLE_WORKSPACE_CLI_SANITIZE_TEMPLATE` | Default Model Armor template |
 | `GOOGLE_WORKSPACE_CLI_SANITIZE_MODE` | `warn` (default) or `block` |
+| `GOOGLE_WORKSPACE_CLI_LOG` | Log level for stderr (e.g., `gws=debug`). Off by default. |
+| `GOOGLE_WORKSPACE_CLI_LOG_FILE` | Directory for JSON log files with daily rotation. Off by default. |
 | `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID override for quota/billing and fallback for helper commands |
 
 Environment variables can also be set in a `.env` file (loaded via [dotenvy](https://crates.io/crates/dotenvy)).
+
+## Exit Codes
+
+`gws` uses structured exit codes so scripts can branch on the failure type without parsing error output.
+
+| Code | Meaning | Example cause |
+|------|---------|---------------|
+| `0` | Success | Command completed normally |
+| `1` | API error | Google returned a 4xx/5xx response |
+| `2` | Auth error | Credentials missing, expired, or invalid |
+| `3` | Validation error | Bad arguments, unknown service, invalid flag |
+| `4` | Discovery error | Could not fetch the API schema document |
+| `5` | Internal error | Unexpected failure |
+
+```bash
+gws drive files list --params '{"fileId": "bad"}'
+echo $?   # 1 — API error
+
+gws unknown-service files list
+echo $?   # 3 — validation error (unknown service)
+```
 
 ## Architecture
 

@@ -31,7 +31,8 @@ gws gmail +forward --message-id <ID> --to <EMAILS>
 | `--from` | — | — | Sender address (for send-as/alias; omit to use account default) |
 | `--cc` | — | — | CC email address(es), comma-separated |
 | `--bcc` | — | — | BCC email address(es), comma-separated |
-| `--body` | — | — | Optional note to include above the forwarded message |
+| `--body` | — | — | Optional note to include above the forwarded message (plain text, or HTML with --html) |
+| `--html` | — | — | Send as HTML (formats forwarded block with Gmail styling; treat --body as HTML) |
 | `--dry-run` | — | — | Show the request that would be sent without executing it |
 
 ## Examples
@@ -41,6 +42,7 @@ gws gmail +forward --message-id 18f1a2b3c4d --to dave@example.com
 gws gmail +forward --message-id 18f1a2b3c4d --to dave@example.com --body 'FYI see below'
 gws gmail +forward --message-id 18f1a2b3c4d --to dave@example.com --cc eve@example.com
 gws gmail +forward --message-id 18f1a2b3c4d --to dave@example.com --bcc secret@example.com
+gws gmail +forward --message-id 18f1a2b3c4d --to dave@example.com --body '<p>FYI</p>' --html
 ```
 
 ## Tips

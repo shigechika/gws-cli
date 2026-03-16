@@ -72,6 +72,8 @@ The CLI uses a **two-phase argument parsing** strategy:
 | `src/schema.rs`           | `gws schema` command — introspect API method schemas                                      |
 | `src/mcp_server.rs`       | MCP stdio server: tool generation from Discovery + helper tools                           |
 | `src/error.rs`            | Structured JSON error output                                                              |
+| `src/logging.rs`          | Opt-in structured logging (stderr + file) via `tracing`                                   |
+| `src/timezone.rs`         | Account timezone resolution: `--timezone` flag, Calendar Settings API, 24h cache           |
 
 ## Demo Videos
 
@@ -297,5 +299,12 @@ Use these labels to categorize pull requests and issues:
 | Variable | Description |
 |---|---|
 | `GOOGLE_WORKSPACE_PROJECT_ID` | GCP project ID override for quota/billing and fallback for helper commands (overridden by `--project` flag) |
+
+### Logging
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_WORKSPACE_CLI_LOG` | Log level filter for stderr output (e.g., `gws=debug`). Off by default. |
+| `GOOGLE_WORKSPACE_CLI_LOG_FILE` | Directory for JSON-line log files with daily rotation. Off by default. |
 
 All variables can also live in a `.env` file (loaded via `dotenvy`).

@@ -122,6 +122,13 @@ TIPS:
                         .help("Filter to specific calendar name or ID")
                         .value_name("NAME"),
                 )
+                .arg(
+                    Arg::new("timezone")
+                        .long("timezone")
+                        .alias("tz")
+                        .help("IANA timezone override (e.g. America/Denver). Defaults to Google account timezone.")
+                        .value_name("TZ"),
+                )
                 .after_help(
                     "\
 EXAMPLES:
@@ -129,10 +136,12 @@ EXAMPLES:
   gws calendar +agenda --today
   gws calendar +agenda --week --format table
   gws calendar +agenda --days 3 --calendar 'Work'
+  gws calendar +agenda --today --timezone America/New_York
 
 TIPS:
   Read-only — never modifies events.
-  Queries all calendars by default; use --calendar to filter.",
+  Queries all calendars by default; use --calendar to filter.
+  Uses your Google account timezone by default; override with --timezone.",
                 ),
         );
         cmd
@@ -170,6 +179,7 @@ TIPS:
                     auth_method,
                     None,
                     None,
+                    None,
                     matches.get_flag("dry-run"),
                     &executor::PaginationConfig::default(),
                     None,
@@ -200,38 +210,45 @@ async fn handle_agenda(matches: &ArgMatches) -> Result<(), GwsError> {
         .map(|s| crate::formatter::OutputFormat::from_str(s))
         .unwrap_or(crate::formatter::OutputFormat::Table);
 
-    // Determine time range
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let client = crate::client::build_client()?;
+    let tz_override = matches.get_one::<String>("timezone").map(|s| s.as_str());
+    let tz = crate::timezone::resolve_account_timezone(&client, &token, tz_override).await?;
 
-    let days: u64 = if matches.get_flag("tomorrow") {
-        // Start from tomorrow, 1 day
+    // Determine time range using the account timezone so that --today and
+    // --tomorrow align with the user's Google account day, not the machine.
+    let now_in_tz = chrono::Utc::now().with_timezone(&tz);
+    let today_start_tz = crate::timezone::start_of_today(tz)?;
+
+    let days: i64 = if matches.get_flag("tomorrow") {
         1
     } else if matches.get_flag("week") {
         7
     } else {
         matches
             .get_one::<String>("days")
-            .and_then(|s| s.parse::<u64>().ok())
+            .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or(1)
     };
 
-    let (time_min_epoch, time_max_epoch) = if matches.get_flag("tomorrow") {
-        // Tomorrow: start of tomorrow to end of tomorrow
-        let day_seconds = 86400;
-        let tomorrow_start = (now / day_seconds + 1) * day_seconds;
-        (tomorrow_start, tomorrow_start + day_seconds)
+    let (time_min_dt, time_max_dt) = if matches.get_flag("today") {
+        // Today: account tz midnight to midnight+1
+        let end = today_start_tz + chrono::Duration::days(1);
+        (today_start_tz, end)
+    } else if matches.get_flag("tomorrow") {
+        // Tomorrow: account tz midnight+1 to midnight+2
+        let start = today_start_tz + chrono::Duration::days(1);
+        let end = today_start_tz + chrono::Duration::days(2);
+        (start, end)
     } else {
-        // Start from now
-        (now, now + days * 86400)
+        // From now, N days ahead
+        let end = now_in_tz + chrono::Duration::days(days);
+        (now_in_tz, end)
     };
 
-    let time_min = epoch_to_rfc3339(time_min_epoch);
-    let time_max = epoch_to_rfc3339(time_max_epoch);
+    let time_min = time_min_dt.to_rfc3339();
+    let time_max = time_max_dt.to_rfc3339();
 
-    let client = crate::client::build_client()?;
+    // client already built above for timezone resolution
     let calendar_filter = matches.get_one::<String>("calendar");
 
     // 1. List all calendars
@@ -395,11 +412,6 @@ async fn handle_agenda(matches: &ArgMatches) -> Result<(), GwsError> {
     Ok(())
 }
 
-fn epoch_to_rfc3339(epoch: u64) -> String {
-    use chrono::{TimeZone, Utc};
-    Utc.timestamp_opt(epoch as i64, 0).unwrap().to_rfc3339()
-}
-
 fn build_insert_request(
     matches: &ArgMatches,
     doc: &crate::discovery::RestDescription,
@@ -535,5 +547,37 @@ mod tests {
         assert!(body.contains("Discuss stuff"));
         assert!(body.contains("a@b.com"));
         assert!(body.contains("c@d.com"));
+    }
+
+    /// Verify that agenda day boundaries use a specific timezone, not UTC.
+    #[test]
+    fn agenda_day_boundaries_use_account_timezone() {
+        use chrono::{NaiveTime, TimeZone, Utc};
+
+        // Simulate using a known account timezone (America/Denver = UTC-7 / UTC-6 DST)
+        let tz = chrono_tz::America::Denver;
+        let now_in_tz = Utc::now().with_timezone(&tz);
+        let today_start = now_in_tz
+            .date_naive()
+            .and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        let today_start_tz = tz
+            .from_local_datetime(&today_start)
+            .earliest()
+            .expect("midnight should resolve");
+
+        let today_rfc = today_start_tz.to_rfc3339();
+        let tomorrow_start = today_start_tz + chrono::Duration::days(1);
+        let tomorrow_rfc = tomorrow_start.to_rfc3339();
+
+        // The Denver offset should appear in the RFC3339 string (-07:00 or -06:00 for DST).
+        // Crucially, it should NOT be +00:00 (UTC).
+        assert!(
+            today_rfc.contains("-07:00") || today_rfc.contains("-06:00"),
+            "today boundary should carry Denver offset, got {today_rfc}"
+        );
+        assert!(
+            tomorrow_rfc.contains("-07:00") || tomorrow_rfc.contains("-06:00"),
+            "tomorrow boundary should carry Denver offset, got {tomorrow_rfc}"
+        );
     }
 }
