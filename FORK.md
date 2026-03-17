@@ -42,14 +42,18 @@ Enabled with the `--helpers` flag. These provide high-level operations on top of
 The upstream npm package does not include MCP support. Build from source:
 
 ```bash
-# cargo install (recommended)
+# Install directly from GitHub (recommended)
 cargo install --git https://github.com/shigechika/gws-cli --locked
-
-# Or clone and build
-git clone https://github.com/shigechika/gws-cli.git
-cd gws-cli
-cargo build --release
 ```
+
+If you cloned the repository locally, install from the working tree:
+
+```bash
+cd gws-cli
+cargo install --path .
+```
+
+This installs the binary to `~/.cargo/bin/gws`. Note that `cargo build --release` only builds to `target/release/gws` and does **not** update `~/.cargo/bin/`.
 
 ## Usage with Claude
 

@@ -42,14 +42,18 @@ gws mcp -s gmail --tool-mode compact
 upstream の npm パッケージには MCP 機能が含まれていないため、ソースからビルドしてください。
 
 ```bash
-# cargo install（推奨）
+# GitHub から直接インストール（推奨）
 cargo install --git https://github.com/shigechika/gws-cli --locked
-
-# または clone してビルド
-git clone https://github.com/shigechika/gws-cli.git
-cd gws-cli
-cargo build --release
 ```
+
+ローカルに clone 済みの場合は、ワーキングツリーからインストール:
+
+```bash
+cd gws-cli
+cargo install --path .
+```
+
+`~/.cargo/bin/gws` にバイナリがインストールされます。`cargo build --release` は `target/release/gws` にビルドするだけで `~/.cargo/bin/` は**更新されない**点に注意してください。
 
 ## Claude での使い方
 
