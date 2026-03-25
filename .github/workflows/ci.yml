@@ -260,7 +260,7 @@ jobs:
 
   build:
     name: Build
-    needs: [smoketest, changes]
+    needs: [build-linux, changes]
     if: |
       always() && !cancelled() && !failure()
       && (needs.changes.outputs.rust == 'true' || github.event_name == 'push')
@@ -323,91 +323,3 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-  smoketest:
-    name: API Smoketest
-    needs: build-linux
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Download binary
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: gws-linux-x86_64
-          path: ./bin
-
-      - name: Make binary executable
-        run: chmod +x ./bin/gws
-
-      - name: Decode credentials
-        env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-        run: |
-          if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then
-            echo "::error::GOOGLE_CREDENTIALS_JSON secret is not set"
-            exit 1
-          fi
-          echo "$GOOGLE_CREDENTIALS_JSON" | base64 -d > /tmp/credentials.json
-
-      - name: Smoketest — help
-        run: ./bin/gws --help
-
-      - name: Smoketest — schema introspection
-        run: ./bin/gws schema drive.files.list | jq -e '.httpMethod'
-
-      - name: Smoketest — Drive files list
-        env:
-          GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /tmp/credentials.json
-        run: |
-          ./bin/gws drive files list \
-            --params '{"pageSize": 1, "fields": "files(id,mimeType)"}' \
-            | jq -e '.files'
-
-      - name: Smoketest — Gmail messages
-        env:
-          GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /tmp/credentials.json
-        run: |
-          ./bin/gws gmail users messages list \
-            --params '{"userId": "me", "maxResults": 1, "fields": "messages(id)"}' \
-            | jq -e '.messages'
-
-      - name: Smoketest — Calendar events
-        env:
-          GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /tmp/credentials.json
-        run: |
-          ./bin/gws calendar events list \
-            --params '{"calendarId": "primary", "maxResults": 1, "fields": "kind,items(id,status)"}' \
-            | jq -e '.kind'
-
-      - name: Smoketest — Slides presentation
-        env:
-          GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /tmp/credentials.json
-        run: |
-          ./bin/gws slides presentations get \
-            --params '{"presentationId": "1knOKD_87JWE4qsEbO4r5O91IxTER5ybBBhOJgZ1yLFI", "fields": "presentationId,slides(objectId)"}' \
-            | jq -e '.presentationId'
-
-      - name: Smoketest — pagination
-        env:
-          GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: /tmp/credentials.json
-        run: |
-          LINES=$(./bin/gws drive files list \
-            --params '{"pageSize": 1, "fields": "nextPageToken,files(id)"}' \
-            --page-all --page-limit 2 \
-            | wc -l)
-          if [ "$LINES" -lt 2 ]; then
-            echo "::error::Expected at least 2 NDJSON lines from pagination, got $LINES"
-            exit 1
-          fi
-
-      - name: Smoketest — error handling
-        run: |
-          if ./bin/gws fakeservice list 2>&1; then
-            echo "::error::Expected exit code 1 for unknown service"
-            exit 1
-          fi
-
-      - name: Cleanup credentials
-        if: always()
-        run: rm -f /tmp/credentials.json

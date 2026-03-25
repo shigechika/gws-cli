@@ -62,7 +62,7 @@ fn sanitize_control_chars(s: &str) -> String {
 
 /// A parsed RFC 5322 mailbox: optional display name + email address.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub(super) struct Mailbox {
+pub(crate) struct Mailbox {
     pub name: Option<String>,
     pub email: String,
 }
@@ -133,7 +133,7 @@ pub(super) fn to_mb_address(mailbox: &Mailbox) -> MbAddress<'_> {
 }
 
 /// Convert a slice of `Mailbox` to a `mail_builder::Address` (list).
-pub(super) fn to_mb_address_list(mailboxes: &[Mailbox]) -> MbAddress<'_> {
+pub(crate) fn to_mb_address_list(mailboxes: &[Mailbox]) -> MbAddress<'_> {
     MbAddress::new_list(mailboxes.iter().map(to_mb_address).collect())
 }
 
@@ -1165,7 +1165,7 @@ pub(super) fn set_threading_headers<'x>(
 }
 
 /// Apply optional From, CC, and BCC headers to a `MessageBuilder`.
-pub(super) fn apply_optional_headers<'x>(
+pub(crate) fn apply_optional_headers<'x>(
     mut mb: mail_builder::MessageBuilder<'x>,
     from: Option<&'x [Mailbox]>,
     cc: Option<&'x [Mailbox]>,
@@ -1189,7 +1189,7 @@ pub(super) fn apply_optional_headers<'x>(
 /// `multipart/related` container so `cid:` references render correctly. Gmail's API
 /// rewrites `Content-Disposition: inline` to `attachment` when parts sit in
 /// `multipart/mixed`, so the explicit `multipart/related` structure is required.
-pub(super) fn finalize_message(
+pub(crate) fn finalize_message(
     mb: mail_builder::MessageBuilder<'_>,
     body: impl Into<String>,
     html: bool,
@@ -1282,7 +1282,7 @@ const MAX_TOTAL_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 /// from the Gmail API). mail-builder handles RFC 2231 encoding for non-ASCII
 /// filenames in the Content-Disposition header.
 #[derive(Debug)]
-pub(super) struct Attachment {
+pub(crate) struct Attachment {
     pub filename: String,
     pub content_type: String,
     pub data: Vec<u8>,
@@ -1402,7 +1402,7 @@ fn resolve_draft_method(
 }
 
 /// Resolve either `users.drafts.create` or `users.messages.send` based on the draft flag.
-pub(super) fn resolve_mail_method(
+pub(crate) fn resolve_mail_method(
     doc: &crate::discovery::RestDescription,
     draft: bool,
 ) -> Result<&crate::discovery::RestMethod, GwsError> {
