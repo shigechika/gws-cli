@@ -10,7 +10,15 @@ After merging upstream/main, fix MCP compilation errors:
 1. `crates/google-workspace-cli/src/mcp_server.rs` — match new arguments in `executor::execute_method()` calls
 2. `crates/google-workspace-cli/src/mcp_server.rs` — match new fields in Gmail helper structs
 3. `crates/google-workspace-cli/src/helpers/gmail/mod.rs` — ensure `pub(crate)` visibility is not reverted to `pub(super)`
-4. Run `cargo clippy -- -D warnings && cargo test` to verify
+4. `pub(crate)` targets: `Mailbox`, `to_mb_address_list`, `apply_optional_headers`, `finalize_message`, `resolve_mail_method`, `Attachment`
+5. Run `cargo clippy -- -D warnings && cargo test` to verify
+6. If conflicts exceed ~20 files, consider rebasing: checkout upstream/main as new branch, re-apply MCP changes, reset main
+
+### Project Structure
+
+- Cargo workspace: `crates/google-workspace-cli/` (binary) + `crates/google-workspace/` (library)
+- MCP server: `crates/google-workspace-cli/src/mcp_server.rs`
+- Local install: `cargo install --path crates/google-workspace-cli`
 
 ### GitHub Actions
 
