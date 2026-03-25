@@ -50,7 +50,7 @@ If you cloned the repository locally, install from the working tree:
 
 ```bash
 cd gws-cli
-cargo install --path .
+cargo install --path crates/google-workspace-cli
 ```
 
 This installs the binary to `~/.cargo/bin/gws`. Note that `cargo build --release` only builds to `target/release/gws` and does **not** update `~/.cargo/bin/`.

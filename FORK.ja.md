@@ -50,7 +50,7 @@ cargo install --git https://github.com/shigechika/gws-cli --locked
 
 ```bash
 cd gws-cli
-cargo install --path .
+cargo install --path crates/google-workspace-cli
 ```
 
 `~/.cargo/bin/gws` にバイナリがインストールされます。`cargo build --release` は `target/release/gws` にビルドするだけで `~/.cargo/bin/` は**更新されない**点に注意してください。
