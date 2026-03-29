@@ -750,6 +750,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_load_credentials_encrypted_file() {
         // Simulate an encrypted credentials file
         let json = r#"{
@@ -761,6 +762,9 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let enc_path = dir.path().join("credentials.enc");
+
+        // Isolate global config dir to prevent races with other tests
+        std::env::set_var("GOOGLE_WORKSPACE_CLI_CONFIG_DIR", dir.path());
 
         // Encrypt and write
         let encrypted = crate::credential_store::encrypt(json.as_bytes()).unwrap();
