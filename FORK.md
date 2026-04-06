@@ -87,9 +87,10 @@ This installs the binary to `~/.cargo/bin/gws`. Note that `cargo build --release
 
 | Date | Event |
 |---|---|
-| 2026-03 | `fix!: Remove MCP server mode` — MCP server removed from upstream as a breaking change |
-| 2026-03 | Branch `fix/mcp-hyphen-tool-names` appeared in upstream — looked like MCP might return with hyphenated tool names |
-| 2026-03 | Branch `fix/mcp-hyphen-tool-names` deleted without being merged — MCP remains absent from upstream |
+| 2026-03-04 | `feat: add gws mcp server` — MCP server added to upstream |
+| 2026-03-05 | Branch `fix/mcp-hyphen-tool-names` appeared in upstream — tool name separator change from underscore to hyphen |
+| 2026-03-06 | `fix!: Remove MCP server mode` — MCP server removed from upstream as a breaking change, just 2 days after introduction |
+| 2026-03-06 | Branch `fix/mcp-hyphen-tool-names` deleted without being merged — MCP remains absent from upstream |
 
 ## Upstream sync policy
 

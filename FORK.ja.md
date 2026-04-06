@@ -87,9 +87,10 @@ cargo install --path crates/google-workspace-cli
 
 | 時期 | 出来事 |
 |---|---|
-| 2026-03 | `fix!: Remove MCP server mode` — upstream が breaking change として MCP サーバーを削除 |
-| 2026-03 | ブランチ `fix/mcp-hyphen-tool-names` が upstream に出現 — ツール名ハイフン化で MCP 復活の兆し |
-| 2026-03 | 同ブランチがマージされずに削除 — upstream での MCP 復活は見送り |
+| 2026-03-04 | `feat: add gws mcp server` — upstream に MCP サーバーが追加 |
+| 2026-03-05 | ブランチ `fix/mcp-hyphen-tool-names` が upstream に出現 — ツール名の区切り文字をアンダースコアからハイフンに変更 |
+| 2026-03-06 | `fix!: Remove MCP server mode` — 追加からわずか2日で upstream が breaking change として MCP サーバーを削除 |
+| 2026-03-06 | 同ブランチがマージされずに削除 — upstream での MCP 復活は見送り |
 
 ## upstream 同期方針
 
