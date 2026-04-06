@@ -207,15 +207,13 @@ async fn handle_request(
                 "tools": tools_cache.as_ref().unwrap()
             }))
         }
-        "tools/call" => {
-            match handle_tools_call(params, config).await {
-                Ok(val) => Ok(val),
-                Err(e) => Ok(json!({
-                    "content": [{ "type": "text", "text": e.to_string() }],
-                    "isError": true
-                })),
-            }
-        }
+        "tools/call" => match handle_tools_call(params, config).await {
+            Ok(val) => Ok(val),
+            Err(e) => Ok(json!({
+                "content": [{ "type": "text", "text": e.to_string() }],
+                "isError": true
+            })),
+        },
         _ => Err(GwsError::Validation(format!(
             "Method not supported: {}",
             method
@@ -491,15 +489,16 @@ async fn handle_gmail_send(arguments: &Value) -> Result<Value, GwsError> {
     let raw_message = crate::helpers::gmail::finalize_message(mb, body_text, false, &[])?;
 
     // Fetch Gmail discovery doc and resolve the send method
-    let (api_name, version) =
-        crate::parse_service_and_version(&["gmail".to_string()], "gmail")?;
+    let (api_name, version) = crate::parse_service_and_version(&["gmail".to_string()], "gmail")?;
     let doc = crate::discovery::fetch_discovery_document(&api_name, &version).await?;
     let send_method = crate::helpers::gmail::resolve_mail_method(&doc, false)?;
 
     let params = json!({ "userId": "me" });
     let params_str = params.to_string();
 
-    let scopes: Vec<&str> = crate::select_scope(&send_method.scopes).into_iter().collect();
+    let scopes: Vec<&str> = crate::select_scope(&send_method.scopes)
+        .into_iter()
+        .collect();
     let (token, auth_method) = match crate::auth::get_token(&scopes).await {
         Ok(t) => (Some(t), crate::executor::AuthMethod::OAuth),
         Err(e) => {
