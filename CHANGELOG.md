@@ -1,5 +1,34 @@
 # @googleworkspace/cli
 
+## 0.22.5
+
+### Patch Changes
+
+- 5d24ac2: Add cargo-audit CI workflow for automated dependency vulnerability scanning
+- ecddf2e: Add cargo-deny configuration for license, advisory, and source auditing
+- 503315b: Update installation instructions to prioritize GitHub Releases over npm
+- 6ccbb42: fix: auto-install binary on run if missing
+
+  pnpm skips postinstall when the package is already up to date.
+  This ensures run.js will auto-trigger install.js if the
+  binary is missing, fixing the 'gws binary not found' error.
+
+- b307856: Migrated the internal AI skills registry (personas and recipes) from YAML to TOML. This allows us to drop the unmaintained serde_yaml dependency, improving the project's supply chain security posture.
+- 158f93a: Verify SHA256 checksum of downloaded binary in npm postinstall script
+- b422e5d: Pin cross-rs to v0.2.5 in release workflow to prevent unpinned git HEAD builds
+
+## 0.22.4
+
+### Patch Changes
+
+- 86c08cf: Remove cargo-dist; use native Node.js fetch for npm binary installer
+
+  Replaces the cargo-dist generated release pipeline and npm package with:
+
+  - A custom GitHub Actions release workflow with matrix cross-compilation
+  - A zero-dependency npm installer using native `fetch()` (Node 18+)
+  - Removes axios, rimraf, detect-libc, console.table, and axios-proxy-builder dependencies from the published npm package
+
 ## 0.22.3
 
 ### Patch Changes
