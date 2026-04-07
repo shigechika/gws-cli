@@ -3980,3 +3980,119 @@ mod tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fork-only: MCP bridge functions
+//
+// These pub(crate) façade functions expose internal helpers to the MCP server
+// (src/mcp_server.rs) WITHOUT changing the visibility of upstream functions.
+// When merging upstream, re-apply this block at the end of the file.
+// ---------------------------------------------------------------------------
+
+/// Compose a reply message for the MCP `gmail_reply` helper tool.
+///
+/// Fetches the original message metadata, resolves the reply recipient,
+/// builds threading headers, and returns the RFC 2822 raw message together
+/// with the thread ID so the caller can send it via the Gmail API.
+pub(crate) async fn mcp_compose_reply(
+    message_id: &str,
+    body_text: &str,
+    reply_all: bool,
+    cc: Option<&[Mailbox]>,
+    bcc: Option<&[Mailbox]>,
+) -> Result<(String, Option<String>), GwsError> {
+    // 1. Auth + fetch original message
+    let token = crate::auth::get_token(&[GMAIL_SCOPE])
+        .await
+        .map_err(|e| GwsError::Auth(format!("Gmail auth failed: {e}")))?;
+    let client = crate::client::build_client()?;
+    let original = fetch_message_metadata(&client, &token, message_id).await?;
+
+    // 2. Determine reply recipients
+    let to_mailboxes = if reply_all {
+        // Reply-To (or From) + original To + CC, excluding self
+        let mut recipients = match &original.reply_to {
+            Some(rt) => rt.clone(),
+            None => vec![original.from.clone()],
+        };
+        recipients.extend(original.to.iter().cloned());
+        if let Some(orig_cc) = &original.cc {
+            recipients.extend(orig_cc.iter().cloned());
+        }
+        // Best-effort self-dedup: fetch profile and exclude own address
+        if let Ok(profile_email) = fetch_self_email(&client, &token).await {
+            let lower = profile_email.to_lowercase();
+            recipients.retain(|m| m.email_lowercase() != lower);
+        }
+        recipients
+    } else {
+        match &original.reply_to {
+            Some(rt) => rt.clone(),
+            None => vec![original.from.clone()],
+        }
+    };
+
+    if to_mailboxes.is_empty() {
+        return Err(GwsError::Validation(
+            "No recipient could be determined from the original message".to_string(),
+        ));
+    }
+
+    // 3. Subject
+    let subject = if original.subject.to_lowercase().starts_with("re:") {
+        original.subject.clone()
+    } else {
+        format!("Re: {}", original.subject)
+    };
+
+    // 4. Threading headers
+    let refs = build_references_chain(&original);
+    let threading = ThreadingHeaders {
+        in_reply_to: &original.message_id,
+        references: &refs,
+    };
+
+    // 5. Build RFC 2822 message
+    let mb = mail_builder::MessageBuilder::new()
+        .to(to_mb_address_list(&to_mailboxes))
+        .subject(&subject);
+    let mb = apply_optional_headers(mb, None, cc, bcc);
+    let mb = set_threading_headers(mb, &threading);
+    let raw_message = finalize_message(mb, body_text, false, &[])?;
+
+    Ok((raw_message, original.thread_id.clone()))
+}
+
+/// Wrapper around the internal `build_send_metadata` for MCP use.
+pub(crate) fn mcp_build_send_metadata(thread_id: Option<&str>, draft: bool) -> Option<String> {
+    build_send_metadata(thread_id, draft)
+}
+
+/// Fetch the authenticated user's primary email (for self-dedup in reply-all).
+async fn fetch_self_email(client: &reqwest::Client, token: &str) -> Result<String, GwsError> {
+    let resp = crate::client::send_with_retry(|| {
+        client
+            .get("https://gmail.googleapis.com/gmail/v1/users/me/profile")
+            .bearer_auth(token)
+    })
+    .await
+    .map_err(|e| GwsError::Other(anyhow::anyhow!("Failed to fetch user profile: {e}")))?;
+
+    if !resp.status().is_success() {
+        return Err(GwsError::Other(anyhow::anyhow!(
+            "Profile fetch failed with status {}",
+            resp.status()
+        )));
+    }
+
+    let profile: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| GwsError::Other(anyhow::anyhow!("Failed to parse profile: {e}")))?;
+
+    profile
+        .get("emailAddress")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| GwsError::Other(anyhow::anyhow!("Profile missing emailAddress")))
+}
