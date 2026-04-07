@@ -191,6 +191,55 @@ Helpers are handwritten commands prefixed with `+` that provide value the schema
 
 See [`src/helpers/README.md`](crates/google-workspace-cli/src/helpers/README.md) for full guidelines, anti-patterns, and a checklist for new helpers.
 
+## MCP Helper Tools (fork-only)
+
+The MCP server (`gws mcp --helpers`) exposes high-level helper tools that automate complex API interactions for AI agents. These are fork-only additions.
+
+### Façade architecture
+
+To minimize upstream merge conflicts, MCP helper tools use a **façade pattern**:
+
+```
+helpers/gmail/mod.rs (upstream code)
+  └─ Fork-only MCP bridge block (end of file)
+       ├─ mcp_compose_reply()    ← pub(crate) façade
+       └─ mcp_build_send_metadata()
+
+mcp_server.rs (fork-only file)
+  ├─ send_raw_gmail()            ← shared Gmail send logic
+  ├─ handle_gmail_send()         ← uses pub(crate) helpers directly
+  └─ handle_gmail_reply()        ← calls mcp_compose_reply() façade
+```
+
+**Key rules:**
+- **Never change `pub(super)` to `pub(crate)` on upstream functions.** Instead, add a `pub(crate)` façade function at the end of the file inside a clearly marked `// Fork-only: MCP bridge functions` block.
+- Façade functions are always appended at the **end of the file** to minimize merge conflicts.
+- `mcp_server.rs` itself is fork-only (upstream deleted it), so it has no merge conflicts.
+
+### Adding a new MCP helper tool
+
+1. **If the helper needs internal functions** — add a `pub(crate)` façade in the relevant `helpers/*.rs` file (end of file, in the MCP bridge block)
+2. **Register the tool** in `append_helper_tools()` in `mcp_server.rs` (service-gated)
+3. **Implement the handler** as `handle_<tool_name>(arguments)` in `mcp_server.rs`
+4. **Add routing** in the `match` block inside `handle_tools_call()`
+5. **Add tests** — parameter validation, schema, and `--helpers` flag gating
+6. **Update FORK.md** tool table
+
+### Current MCP helper tools
+
+| Tool | Handler | Façade | Description |
+|---|---|---|---|
+| `gmail_send` | `handle_gmail_send` | None (uses `pub(crate)` helpers directly) | Send a new email |
+| `gmail_reply` | `handle_gmail_reply` | `mcp_compose_reply` | Reply within a thread |
+
+### Upstream merge checklist for MCP
+
+After merging upstream, verify:
+1. `mcp_server.rs` still compiles (check `executor::execute_method` signature changes)
+2. `pub(crate)` on `Mailbox`, `to_mb_address_list`, `apply_optional_headers`, `finalize_message`, `resolve_mail_method` has not been reverted to `pub(super)`
+3. MCP bridge façade block at end of `helpers/gmail/mod.rs` is still present
+4. Run `cargo clippy -- -D warnings && cargo test -p google-workspace-cli -- mcp_server`
+
 ## Environment Variables
 
 ### Authentication

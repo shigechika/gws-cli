@@ -36,6 +36,7 @@ gws mcp -s gmail --tool-mode compact
 | ツール名 | 説明 |
 |---|---|
 | `gmail_send` | メール送信。to/subject/body を渡すだけで RFC 2822 フォーマット・base64url エンコードを自動処理 |
+| `gmail_reply` | スレッド内返信。message_id/body を渡すだけで In-Reply-To, References, Re: 件名, threadId を自動設定 |
 
 ## インストール
 

@@ -36,6 +36,7 @@ Enabled with the `--helpers` flag. These provide high-level operations on top of
 | Tool | Description |
 |---|---|
 | `gmail_send` | Send email. Just pass to/subject/body — RFC 2822 formatting and base64url encoding are handled automatically |
+| `gmail_reply` | Reply within a thread. Pass message_id/body — In-Reply-To, References, Re: subject, and threadId are set automatically |
 
 ## Installation
 
@@ -96,5 +97,5 @@ This installs the binary to `~/.cargo/bin/gws`. Note that `cargo build --release
 
 - Weekly auto-merge from upstream/main via GitHub Actions (every Monday)
 - Conflicts trigger a PR for manual resolution
-- MCP-related code (`src/mcp_server.rs`, `pub(crate)` visibility) is preserved as top priority
+- MCP-related code (`src/mcp_server.rs`, `pub(crate)` visibility, MCP bridge façade functions) is preserved as top priority
 - Issue/PR number references (`#123`) are stripped from upstream commit messages to prevent cross-references
