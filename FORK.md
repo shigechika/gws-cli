@@ -44,13 +44,13 @@ The upstream npm package does not include MCP support. Build from source:
 
 ```bash
 # Install directly from GitHub (recommended)
-cargo install --git https://github.com/shigechika/gws-cli --locked
+cargo install --git https://github.com/shigechika/gws-mcp --locked
 ```
 
 If you cloned the repository locally, install from the working tree:
 
 ```bash
-cd gws-cli
+cd gws-mcp
 cargo install --path crates/google-workspace-cli
 ```
 
