@@ -41,19 +41,59 @@ jobs:
           BRANCH="sync-upstream/$(date +%Y%m%d)"
           git checkout -b "$BRANCH"
 
+          # Files the fork has deleted and wants to keep deleted.
+          # If upstream modifies any of these, auto-resolve by removing them.
+          FORK_DELETED_FILES=(
+            ".github/workflows/release.yml"
+            ".github/workflows/automation.yml"
+            ".github/workflows/cla.yml"
+            ".github/workflows/coverage.yml"
+            ".github/workflows/generate-skills.yml"
+            ".github/workflows/publish-skills.yml"
+            ".github/workflows/release-changesets.yml"
+            ".github/workflows/stale.yml"
+            "dist-workspace.toml"
+          )
+
           if git merge upstream/main --no-edit; then
+            CONFLICT=false
+          else
+            # Auto-resolve modify/delete conflicts for files the fork deleted.
+            RESOLVED=false
+            for f in "${FORK_DELETED_FILES[@]}"; do
+              if git status --porcelain "$f" 2>/dev/null | grep -q "^DU\|^UD"; then
+                git rm -f "$f" || true
+                RESOLVED=true
+              fi
+            done
+
+            # Check if any conflicts remain after auto-resolution.
+            if git diff --name-only --diff-filter=U | grep -q .; then
+              # Real conflicts remain — commit as-is for manual resolution.
+              git add -A
+              git commit -m "sync: merge upstream/main (conflicts need manual resolution)" --no-verify || true
+              CONFLICT=true
+            elif [ "$RESOLVED" = "true" ]; then
+              # Only fork-deleted-file conflicts existed, and we resolved them.
+              git commit --no-edit
+              CONFLICT=false
+            else
+              # Should not happen, but safe fallback.
+              git add -A
+              git commit -m "sync: merge upstream/main" --no-verify || true
+              CONFLICT=true
+            fi
+          fi
+
+          if [ "$CONFLICT" = "false" ]; then
             # Strip issue/PR number references to prevent cross-references
             MSG=$(git log -1 --format=%B)
             CLEANED=$(echo "$MSG" | sed 's/ (#[0-9]\+)//g; s/#[0-9]\+//g')
             if [ "$MSG" != "$CLEANED" ]; then
               git commit --amend -m "$CLEANED"
             fi
-            echo "conflict=false" >> "$GITHUB_OUTPUT"
-          else
-            git add -A
-            git commit -m "sync: merge upstream/main (conflicts need manual resolution)" --no-verify || true
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "conflict=$CONFLICT" >> "$GITHUB_OUTPUT"
 
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           git push -u origin "$BRANCH"
