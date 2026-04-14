@@ -84,6 +84,18 @@ This installs the binary to `~/.cargo/bin/gws`. Note that `cargo build --release
 }
 ```
 
+## Upstream MCP issues addressed in this fork
+
+Bug reports and feature requests that targeted upstream's MCP server (closed when MCP was removed). This fork ports the fixes so they remain useful:
+
+| Upstream issue | Status | Notes |
+|---|---|---|
+| [#162](https://github.com/googleworkspace/cli/issues/162) — `tools/list` returns uncallable tool names for aliased services | Fixed | `walk_resources` now uses the configured service alias as tool-name prefix (instead of Discovery doc name), so `tools/list` and `tools/call` share one namespace |
+| [#170](https://github.com/googleworkspace/cli/issues/170) — Tool name parsing breaks on multi-word resources (`admin_role_assignments_list` etc.) | Fixed | Replaced `split('_')` with a greedy Discovery-tree resolver (`resolve_tool_path`). Handles arbitrarily nested resources whose names contain underscores |
+| [#212](https://github.com/googleworkspace/cli/issues/212) — Full-mode schemas expose `body`/`upload` on GET-only methods | Fixed | `body` is added only when `method.request.is_some()`; `upload` only when `supports_media_upload` is true |
+| [#251](https://github.com/googleworkspace/cli/issues/251) — Dynamic `--upload` accepts unsafe absolute/traversal paths | Fixed | MCP `upload` argument rejects absolute paths and `..` components |
+| [#260](https://github.com/googleworkspace/cli/issues/260) — Tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) | Partial | Annotations derived from HTTP method are now attached to every tool. `tool_search` meta-tool and pagination from the original proposal are not yet ported |
+
 ## Upstream MCP timeline
 
 | Date | Event |

@@ -232,7 +232,7 @@ async fn build_tools_list(config: &ServerConfig) -> Result<Vec<Value>, GwsError>
         let (api_name, version) =
             crate::parse_service_and_version(&[svc_name.to_string()], svc_name)?;
         if let Ok(doc) = crate::discovery::fetch_discovery_document(&api_name, &version).await {
-            walk_resources(&doc.name, &doc.resources, &mut tools);
+            walk_resources(svc_name, &doc.resources, &mut tools);
         } else {
             eprintln!("[gws mcp] Warning: Failed to load discovery document for service '{}'. It will not be available as a tool.", svc_name);
         }
@@ -438,6 +438,11 @@ fn append_helper_tools(services: &[String], tools: &mut Vec<Value>) {
                     }
                 },
                 "required": ["to", "subject", "body"]
+            },
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
             }
         }));
         tools.push(json!({
@@ -468,6 +473,11 @@ fn append_helper_tools(services: &[String], tools: &mut Vec<Value>) {
                     }
                 },
                 "required": ["message_id", "body"]
+            },
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
             }
         }));
     }
@@ -667,7 +677,8 @@ fn walk_resources(prefix: &str, resources: &HashMap<String, RestResource>, tools
             tools.push(json!({
                 "name": tool_name,
                 "description": description,
-                "inputSchema": input_schema
+                "inputSchema": input_schema,
+                "annotations": http_method_annotations(&method.http_method),
             }));
         }
 
@@ -675,6 +686,40 @@ fn walk_resources(prefix: &str, resources: &HashMap<String, RestResource>, tools
             walk_resources(&new_prefix, &res.resources, tools);
         }
     }
+}
+
+/// MCP tool annotations derived from HTTP method (upstream #260).
+fn http_method_annotations(http_method: &str) -> Value {
+    let m = http_method.to_ascii_uppercase();
+    json!({
+        "readOnlyHint": m == "GET",
+        "destructiveHint": m == "DELETE",
+        "idempotentHint": matches!(m.as_str(), "GET" | "PUT" | "DELETE" | "HEAD"),
+    })
+}
+
+/// Greedy resolver for underscore-joined tool names (upstream #170).
+///
+/// Resource names may themselves contain underscores (e.g. `role_assignments`),
+/// so `split('_')` is ambiguous. This walks the Discovery tree and consumes
+/// `resource_name_` prefixes greedily, supporting arbitrarily nested resources.
+fn resolve_tool_path(
+    remaining: &str,
+    resources: &HashMap<String, RestResource>,
+) -> Option<(Vec<String>, String)> {
+    for (res_name, res) in resources {
+        let prefix = format!("{}_", res_name);
+        if let Some(after) = remaining.strip_prefix(&prefix) {
+            if res.methods.contains_key(after) {
+                return Some((vec![res_name.clone()], after.to_string()));
+            }
+            if let Some((mut sub_path, method)) = resolve_tool_path(after, &res.resources) {
+                sub_path.insert(0, res_name.clone());
+                return Some((sub_path, method));
+            }
+        }
+    }
+    None
 }
 
 async fn handle_discover(arguments: &Value, config: &ServerConfig) -> Result<Value, GwsError> {
@@ -918,16 +963,11 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
         return execute_mcp_method(&doc, method, arguments).await;
     }
 
-    // Full mode
-    let parts: Vec<&str> = tool_name.split('_').collect();
-    if parts.len() < 3 {
-        return Err(GwsError::Validation(format!(
-            "Invalid API tool name: {}",
-            tool_name
-        )));
-    }
-
-    let svc_alias = parts[0];
+    // Full mode — greedy parse that handles resource names containing underscores
+    // (upstream #170, e.g. `admin_role_assignments_list`).
+    let (svc_alias, remaining) = tool_name
+        .split_once('_')
+        .ok_or_else(|| GwsError::Validation(format!("Invalid API tool name: {}", tool_name)))?;
 
     if !config.services.contains(&svc_alias.to_string()) {
         return Err(GwsError::Validation(format!(
@@ -940,29 +980,26 @@ async fn handle_tools_call(params: &Value, config: &ServerConfig) -> Result<Valu
         crate::parse_service_and_version(&[svc_alias.to_string()], svc_alias)?;
     let doc = crate::discovery::fetch_discovery_document(&api_name, &version).await?;
 
+    let (resource_path, method_name) =
+        resolve_tool_path(remaining, &doc.resources).ok_or_else(|| {
+            GwsError::Validation(format!(
+                "Tool '{}' not found in Discovery Document",
+                tool_name
+            ))
+        })?;
+
     let mut current_resources = &doc.resources;
     let mut current_res = None;
-
-    for res_name in &parts[1..parts.len() - 1] {
-        if let Some(res) = current_resources.get(*res_name) {
-            current_res = Some(res);
-            current_resources = &res.resources;
-        } else {
-            return Err(GwsError::Validation(format!(
-                "Resource '{}' not found in Discovery Document",
-                res_name
-            )));
-        }
+    for res_name in &resource_path {
+        let res = current_resources
+            .get(res_name)
+            .ok_or_else(|| GwsError::Validation(format!("Resource '{}' not found", res_name)))?;
+        current_res = Some(res);
+        current_resources = &res.resources;
     }
-
-    let method_name = parts.last().unwrap();
-    let method = if let Some(res) = current_res {
-        res.methods
-            .get(*method_name)
-            .ok_or_else(|| GwsError::Validation(format!("Method '{}' not found", method_name)))?
-    } else {
-        return Err(GwsError::Validation("Resource not found".to_string()));
-    };
+    let method = current_res
+        .and_then(|r| r.methods.get(&method_name))
+        .ok_or_else(|| GwsError::Validation(format!("Method '{}' not found", method_name)))?;
 
     execute_mcp_method(&doc, method, arguments).await
 }
@@ -1067,6 +1104,118 @@ mod tests {
     use super::*;
     use crate::discovery::{MethodParameter, RestDescription, RestMethod, RestResource};
     use std::collections::HashMap;
+
+    #[test]
+    fn test_http_method_annotations_get() {
+        let a = http_method_annotations("GET");
+        assert_eq!(a["readOnlyHint"], true);
+        assert_eq!(a["destructiveHint"], false);
+        assert_eq!(a["idempotentHint"], true);
+    }
+
+    #[test]
+    fn test_http_method_annotations_delete() {
+        let a = http_method_annotations("DELETE");
+        assert_eq!(a["readOnlyHint"], false);
+        assert_eq!(a["destructiveHint"], true);
+        assert_eq!(a["idempotentHint"], true);
+    }
+
+    #[test]
+    fn test_http_method_annotations_post() {
+        let a = http_method_annotations("POST");
+        assert_eq!(a["readOnlyHint"], false);
+        assert_eq!(a["destructiveHint"], false);
+        assert_eq!(a["idempotentHint"], false);
+    }
+
+    #[test]
+    fn test_resolve_tool_path_simple() {
+        let mut methods = HashMap::new();
+        methods.insert(
+            "list".to_string(),
+            RestMethod {
+                http_method: "GET".to_string(),
+                ..Default::default()
+            },
+        );
+        let mut resources = HashMap::new();
+        resources.insert(
+            "files".to_string(),
+            RestResource {
+                methods,
+                resources: HashMap::new(),
+            },
+        );
+
+        let (path, method) = resolve_tool_path("files_list", &resources).unwrap();
+        assert_eq!(path, vec!["files".to_string()]);
+        assert_eq!(method, "list");
+    }
+
+    #[test]
+    fn test_resolve_tool_path_multi_word_resource() {
+        // Regression for upstream #170: resource name contains underscore.
+        let mut methods = HashMap::new();
+        methods.insert(
+            "list".to_string(),
+            RestMethod {
+                http_method: "GET".to_string(),
+                ..Default::default()
+            },
+        );
+        let mut resources = HashMap::new();
+        resources.insert(
+            "role_assignments".to_string(),
+            RestResource {
+                methods,
+                resources: HashMap::new(),
+            },
+        );
+
+        let (path, method) = resolve_tool_path("role_assignments_list", &resources).unwrap();
+        assert_eq!(path, vec!["role_assignments".to_string()]);
+        assert_eq!(method, "list");
+    }
+
+    #[test]
+    fn test_resolve_tool_path_nested() {
+        let mut inner_methods = HashMap::new();
+        inner_methods.insert(
+            "list".to_string(),
+            RestMethod {
+                http_method: "GET".to_string(),
+                ..Default::default()
+            },
+        );
+        let mut inner_resources = HashMap::new();
+        inner_resources.insert(
+            "space_events".to_string(),
+            RestResource {
+                methods: inner_methods,
+                resources: HashMap::new(),
+            },
+        );
+        let mut outer_resources = HashMap::new();
+        outer_resources.insert(
+            "spaces".to_string(),
+            RestResource {
+                methods: HashMap::new(),
+                resources: inner_resources,
+            },
+        );
+
+        let (path, method) =
+            resolve_tool_path("spaces_space_events_list", &outer_resources).unwrap();
+        assert_eq!(path, vec!["spaces".to_string(), "space_events".to_string()]);
+        assert_eq!(method, "list");
+    }
+
+    #[test]
+    fn test_resolve_tool_path_not_found() {
+        let resources = HashMap::new();
+        assert!(resolve_tool_path("nonexistent_method", &resources).is_none());
+    }
 
     fn mock_config_compact(services: Vec<&str>) -> ServerConfig {
         ServerConfig {

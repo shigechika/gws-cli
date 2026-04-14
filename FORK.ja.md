@@ -84,6 +84,18 @@ cargo install --path crates/google-workspace-cli
 }
 ```
 
+## このフォークで対応した upstream の MCP issue
+
+upstream の MCP サーバーに対するバグ報告・機能要望（MCP 削除に伴い close されたもの）を、このフォークで移植・対応しています。
+
+| upstream issue | 状態 | 内容 |
+|---|---|---|
+| [#162](https://github.com/googleworkspace/cli/issues/162) — `tools/list` が呼び出せないツール名を返す（alias と doc.name の不一致） | 対応済 | `walk_resources` がツール名プレフィックスに Discovery doc 名ではなく設定された alias を使うよう変更。`tools/list` と `tools/call` の名前空間を統一 |
+| [#170](https://github.com/googleworkspace/cli/issues/170) — 複数単語のリソース名（`admin_role_assignments_list` 等）でパースが壊れる | 対応済 | `split('_')` を Discovery ツリーに対する貪欲リゾルバ（`resolve_tool_path`）に置換。アンダースコアを含むリソース名・任意の入れ子に対応 |
+| [#212](https://github.com/googleworkspace/cli/issues/212) — Full mode の schema が GET メソッドにも `body`/`upload` を含む | 対応済 | `method.request.is_some()` の時のみ `body` を、`supports_media_upload == true` の時のみ `upload` を付与 |
+| [#251](https://github.com/googleworkspace/cli/issues/251) — `--upload` が絶対パス・トラバーサルパスを受理する | 対応済 | MCP の `upload` 引数で絶対パス・`..` 要素を拒否 |
+| [#260](https://github.com/googleworkspace/cli/issues/260) — tool annotations（`readOnlyHint` / `destructiveHint` / `idempotentHint`） | 部分対応 | HTTP method から導出した annotations を全ツールに付与。`tool_search` メタツールとページネーションは未移植 |
+
 ## upstream MCP 定点観測
 
 | 時期 | 出来事 |

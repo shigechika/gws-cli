@@ -1833,6 +1833,9 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn config_dir_returns_gws_subdir() {
+        // Other tests (e.g. in auth.rs) may set GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+        // to a tempdir path that does not end in "gws", so clear it first.
+        std::env::remove_var("GOOGLE_WORKSPACE_CLI_CONFIG_DIR");
         let path = config_dir();
         assert!(path.ends_with("gws"));
     }
