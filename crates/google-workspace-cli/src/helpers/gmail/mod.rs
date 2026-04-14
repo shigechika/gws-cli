@@ -258,15 +258,19 @@ fn parse_message_headers(headers: &[Value]) -> ParsedMessageHeaders {
         let name = header.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let value = header.get("value").and_then(|v| v.as_str()).unwrap_or("");
 
-        match name {
-            "From" => parsed.from = value.to_string(),
-            "Reply-To" => append_address_list_header_value(&mut parsed.reply_to, value),
-            "To" => append_address_list_header_value(&mut parsed.to, value),
-            "Cc" => append_address_list_header_value(&mut parsed.cc, value),
-            "Subject" => parsed.subject = value.to_string(),
-            "Date" => parsed.date = value.to_string(),
-            "Message-ID" | "Message-Id" => parsed.message_id = value.to_string(),
-            "References" => append_header_value(&mut parsed.references, value),
+        // RFC 5322 §1.2.2: header field names are case-insensitive. Gmail
+        // preserves the sender's original casing, so `"CC"` from
+        // Exchange/Outlook would fall through a case-sensitive match and
+        // silently drop CC recipients in +reply-all (upstream #642).
+        match name.to_ascii_lowercase().as_str() {
+            "from" => parsed.from = value.to_string(),
+            "reply-to" => append_address_list_header_value(&mut parsed.reply_to, value),
+            "to" => append_address_list_header_value(&mut parsed.to, value),
+            "cc" => append_address_list_header_value(&mut parsed.cc, value),
+            "subject" => parsed.subject = value.to_string(),
+            "date" => parsed.date = value.to_string(),
+            "message-id" => parsed.message_id = value.to_string(),
+            "references" => append_header_value(&mut parsed.references, value),
             _ => {}
         }
     }
@@ -2425,6 +2429,41 @@ mod tests {
         );
         assert_eq!(original.body_text, "Snippet fallback");
         assert_eq!(original.body_html.as_deref(), Some("<p>HTML only</p>"));
+    }
+
+    #[test]
+    fn test_parse_original_message_handles_non_canonical_header_casing() {
+        // Regression for upstream #642: Exchange/Outlook emit "CC" in uppercase,
+        // other MTAs use lowercase. All variants must be recognized.
+        let msg = json!({
+            "threadId": "thread-1",
+            "snippet": "s",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [
+                    { "name": "FROM", "value": "alice@example.com" },
+                    { "name": "to", "value": "bob@example.com" },
+                    { "name": "CC", "value": "carol@example.com" },
+                    { "name": "subject", "value": "Re: test" },
+                    { "name": "MESSAGE-ID", "value": "<msg@example.com>" },
+                    { "name": "references", "value": "<ref@example.com>" }
+                ],
+                "body": { "data": URL_SAFE.encode("body") }
+            }
+        });
+
+        let original = parse_original_message(&msg).unwrap();
+        assert_eq!(original.from.email, "alice@example.com");
+        assert_eq!(original.to.len(), 1);
+        assert_eq!(original.to[0].email, "bob@example.com");
+        let cc = original
+            .cc
+            .expect("CC header should be recognized regardless of casing");
+        assert_eq!(cc.len(), 1);
+        assert_eq!(cc[0].email, "carol@example.com");
+        assert_eq!(original.subject, "Re: test");
+        assert_eq!(original.message_id, "msg@example.com");
+        assert_eq!(original.references, vec!["ref@example.com"]);
     }
 
     #[test]

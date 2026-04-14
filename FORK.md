@@ -95,6 +95,7 @@ Bug reports and feature requests that targeted upstream's MCP server (closed whe
 | [#212](https://github.com/googleworkspace/cli/issues/212) — Full-mode schemas expose `body`/`upload` on GET-only methods | Fixed | `body` is added only when `method.request.is_some()`; `upload` only when `supports_media_upload` is true |
 | [#251](https://github.com/googleworkspace/cli/issues/251) — Dynamic `--upload` accepts unsafe absolute/traversal paths | Fixed | MCP `upload` argument rejects absolute paths and `..` components |
 | [#260](https://github.com/googleworkspace/cli/issues/260) — Tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) | Partial | Annotations derived from HTTP method are now attached to every tool. `tool_search` meta-tool and pagination from the original proposal are not yet ported |
+| [#642](https://github.com/googleworkspace/cli/issues/642) — `parse_message_headers` case-sensitive match drops CC/headers with non-canonical casing | Fixed | Normalized header names to lowercase before matching, so `"CC"` from Exchange/Outlook, `"from"` lowercase, etc. are all recognized per RFC 5322 §1.2.2 |
 
 ## Upstream MCP timeline
 
