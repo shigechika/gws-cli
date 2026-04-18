@@ -1793,6 +1793,34 @@ mod tests {
         assert_eq!(scopes.len(), FULL_SCOPES.len());
     }
 
+    /// `DEFAULT_SCOPES` must not include cloud-platform: it is a restricted
+    /// scope that some Workspace admin policies block, and the login flow
+    /// relies on this invariant to avoid `admin_policy_enforced` errors
+    /// for users who did not opt in (upstream #562).
+    #[test]
+    fn default_scopes_does_not_include_cloud_platform() {
+        for scope in DEFAULT_SCOPES {
+            assert!(
+                !scope.contains("cloud-platform"),
+                "DEFAULT_SCOPES must not include cloud-platform (upstream #562): {}",
+                scope
+            );
+        }
+    }
+
+    /// `FULL_SCOPES` is the opt-in path for users who do want cloud-platform
+    /// (e.g. for the modelarmor helper). Keep this invariant so we don't
+    /// accidentally remove the only non-custom entry point that includes it.
+    #[test]
+    fn full_scopes_includes_cloud_platform() {
+        assert!(
+            FULL_SCOPES
+                .iter()
+                .any(|s| *s == "https://www.googleapis.com/auth/cloud-platform"),
+            "FULL_SCOPES must include cloud-platform as the opt-in entry point"
+        );
+    }
+
     #[test]
     #[serial_test::serial]
     fn resolve_client_credentials_from_env_vars() {
