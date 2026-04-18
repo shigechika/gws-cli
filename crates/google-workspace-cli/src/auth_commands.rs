@@ -930,7 +930,7 @@ fn run_discovery_scope_picker(
     relevant_scopes: &[crate::setup::DiscoveredScope],
     services_filter: Option<&HashSet<String>>,
 ) -> Option<Vec<String>> {
-    use crate::setup::{ScopeClassification, PLATFORM_SCOPE};
+    use crate::setup::ScopeClassification;
     use crate::setup_tui::{PickerResult, SelectItem};
 
     let mut recommended_scopes = vec![];
@@ -1102,10 +1102,12 @@ fn run_discovery_scope_picker(
                 }
             }
 
-            // Always include cloud-platform scope
-            if !selected.contains(&PLATFORM_SCOPE.to_string()) {
-                selected.push(PLATFORM_SCOPE.to_string());
-            }
+            // Do not auto-inject cloud-platform. It is a restricted scope that
+            // some Workspace orgs block via admin policy, which would cause
+            // `admin_policy_enforced` login failures for users who picked
+            // narrower scopes (upstream #562). Users who need cloud-platform
+            // (e.g. for the modelarmor helper) can tick it in the picker or
+            // pass `--full` / `--scopes https://www.googleapis.com/auth/cloud-platform`.
 
             // Hierarchical dedup: if we have both a broad scope (e.g. `.../auth/drive`)
             // and a narrower scope (e.g. `.../auth/drive.metadata`, `.../auth/drive.readonly`),

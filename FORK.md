@@ -99,6 +99,7 @@ Bug reports and feature requests that targeted upstream's MCP server (closed whe
 | [#573](https://github.com/googleworkspace/cli/issues/573) — `metadataHeaders` array not expanded as repeated query params in `gmail.users.messages.get` | Fixed | Discovery parser preserves `repeated: true` (`discovery.rs`), and the executor expands JSON array values into multiple query entries (`executor.rs`). Discovery-driven MCP tools inherit the same behavior |
 | [#625](https://github.com/googleworkspace/cli/issues/625) — `script` service not registered in `services.rs` (helper unreachable) | Fixed | `ServiceEntry { aliases: &["script"], api_name: "script", version: "v1", ... }` is registered, so `gws script ...` and MCP `script_*` tools resolve correctly |
 | [#717](https://github.com/googleworkspace/cli/issues/717) — `gws auth status` prints non-JSON to stdout, breaking `jq` pipelines | Fixed | `Using keyring backend: <name>` is emitted via `eprintln!` to stderr (`credential_store.rs`), so `gws auth status \| jq .` parses cleanly |
+| [#562](https://github.com/googleworkspace/cli/issues/562) — Interactive TUI unconditionally injects `cloud-platform` scope, breaking org-restricted accounts | Fixed | Removed the post-selection auto-inject in `run_discovery_scope_picker` (`auth_commands.rs`). Users who need `cloud-platform` (e.g. for modelarmor) can tick it in the picker or pass `--full` / explicit `--scopes` |
 
 ## Upstream MCP timeline
 

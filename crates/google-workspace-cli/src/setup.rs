@@ -235,8 +235,6 @@ pub enum ScopeClassification {
     Restricted,
 }
 
-pub const PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
-
 /// A scope discovered from a Discovery Document.
 #[derive(Clone)]
 pub struct DiscoveredScope {
