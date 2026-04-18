@@ -622,7 +622,15 @@ pub(super) async fn resolve_sender(
                         result = Some(vec![Mailbox::parse(&raw)]);
                     }
                     Ok(None) => {}
-                    Err(e) if matches!(&e, GwsError::Api { code: 401 | 403, .. }) => {
+                    Err(e)
+                        if matches!(
+                            &e,
+                            GwsError::Api {
+                                code: 401 | 403,
+                                ..
+                            }
+                        ) =>
+                    {
                         // Access token was minted without the profile scope, or
                         // the scope was revoked. If `gws auth status` shows
                         // `userinfo.profile` in `scopes`, re-running
@@ -679,9 +687,10 @@ async fn fetch_profile_display_name(
         return Err(build_api_error(status, &body, "userinfo request failed"));
     }
 
-    let body: Value = resp.json().await.map_err(|e| {
-        GwsError::Other(anyhow::anyhow!("Failed to parse userinfo response: {e}"))
-    })?;
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| GwsError::Other(anyhow::anyhow!("Failed to parse userinfo response: {e}")))?;
 
     Ok(parse_profile_display_name(&body))
 }
