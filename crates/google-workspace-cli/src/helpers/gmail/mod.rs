@@ -622,16 +622,22 @@ pub(super) async fn resolve_sender(
                         result = Some(vec![Mailbox::parse(&raw)]);
                     }
                     Ok(None) => {}
-                    Err(e) if matches!(&e, GwsError::Api { code: 403, .. }) => {
-                        // Token exists but doesn't carry the scope.
+                    Err(e) if matches!(&e, GwsError::Api { code: 401 | 403, .. }) => {
+                        // Access token was minted without the profile scope, or
+                        // the scope was revoked. If `gws auth status` shows
+                        // `userinfo.profile` in `scopes`, re-running
+                        // `gws auth login` refreshes the cached token and clears
+                        // the mismatch; otherwise add the scope explicitly.
                         eprintln!(
-                            "Tip: run `gws auth login` and grant the \"profile\" scope \
-                             to include your display name in the From header"
+                            "Note: userinfo endpoint denied the profile request. \
+                             Re-run `gws auth login` to refresh credentials; if the \
+                             \"profile\" scope is missing from `gws auth status`, \
+                             grant it there. Sending From header without display name."
                         );
                     }
                     Err(e) => {
                         eprintln!(
-                            "Note: could not fetch display name from People API ({})",
+                            "Note: could not fetch display name from userinfo endpoint ({})",
                             sanitize_for_terminal(&e.to_string())
                         );
                     }
@@ -643,20 +649,26 @@ pub(super) async fn resolve_sender(
     Ok(result)
 }
 
-/// Fetch the authenticated user's display name from the People API.
-/// Requires a token with the `profile` scope.
+/// Fetch the authenticated user's display name from the OIDC userinfo endpoint.
+/// Requires a token carrying the `userinfo.profile` (or standard `profile`) scope.
+///
+/// Upstream #644: the previous implementation used People API
+/// (`/people/me?personFields=names`), which returns 403 for some personal
+/// Gmail accounts even when `userinfo.profile` is granted — producing a
+/// misleading "grant the profile scope" tip for users who already had it.
+/// The OIDC userinfo endpoint accepts the same `userinfo.profile` scope
+/// and responds uniformly across Workspace and personal accounts.
 async fn fetch_profile_display_name(
     client: &reqwest::Client,
     token: &str,
 ) -> Result<Option<String>, GwsError> {
     let resp = crate::client::send_with_retry(|| {
         client
-            .get("https://people.googleapis.com/v1/people/me")
-            .query(&[("personFields", "names")])
+            .get("https://openidconnect.googleapis.com/v1/userinfo")
             .bearer_auth(token)
     })
     .await
-    .map_err(|e| GwsError::Other(anyhow::anyhow!("People API request failed: {e}")))?;
+    .map_err(|e| GwsError::Other(anyhow::anyhow!("userinfo request failed: {e}")))?;
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -664,22 +676,20 @@ async fn fetch_profile_display_name(
             .text()
             .await
             .unwrap_or_else(|_| "(error body unreadable)".to_string());
-        return Err(build_api_error(status, &body, "People API request failed"));
+        return Err(build_api_error(status, &body, "userinfo request failed"));
     }
 
     let body: Value = resp.json().await.map_err(|e| {
-        GwsError::Other(anyhow::anyhow!("Failed to parse People API response: {e}"))
+        GwsError::Other(anyhow::anyhow!("Failed to parse userinfo response: {e}"))
     })?;
 
     Ok(parse_profile_display_name(&body))
 }
 
-/// Extract the display name from a People API `people.get` response.
+/// Extract the display name from an OIDC userinfo response.
+/// The response is a flat object with a top-level `name` string.
 fn parse_profile_display_name(body: &Value) -> Option<String> {
-    body.get("names")
-        .and_then(|v| v.as_array())
-        .and_then(|names| names.first())
-        .and_then(|n| n.get("displayName"))
+    body.get("name")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(sanitize_control_chars)
@@ -3432,23 +3442,20 @@ mod tests {
         assert!(addrs[0].name.is_none());
     }
 
-    // --- parse_profile_display_name tests ---
+    // --- parse_profile_display_name tests (OIDC userinfo responses) ---
 
     #[test]
     fn test_parse_profile_display_name() {
+        // OIDC userinfo response shape — flat object with top-level `name`.
         let body = serde_json::json!({
-            "resourceName": "people/112118466613566642951",
-            "etag": "%EgUBAi43PRoEAQIFByIMR0xCc0FMcVBJQmc9",
-            "names": [{
-                "metadata": {
-                    "primary": true,
-                    "source": { "type": "DOMAIN_PROFILE", "id": "112118466613566642951" }
-                },
-                "displayName": "Malo Bourgon",
-                "familyName": "Bourgon",
-                "givenName": "Malo",
-                "displayNameLastFirst": "Bourgon, Malo"
-            }]
+            "sub": "112118466613566642951",
+            "name": "Malo Bourgon",
+            "given_name": "Malo",
+            "family_name": "Bourgon",
+            "picture": "https://lh3.googleusercontent.com/a/example",
+            "email": "malo@example.com",
+            "email_verified": true,
+            "locale": "en"
         });
         assert_eq!(
             parse_profile_display_name(&body).as_deref(),
@@ -3629,15 +3636,13 @@ mod tests {
 
     #[test]
     fn test_parse_profile_display_name_empty_name() {
-        let body = serde_json::json!({
-            "names": [{ "displayName": "" }]
-        });
+        let body = serde_json::json!({ "sub": "x", "name": "" });
         assert!(parse_profile_display_name(&body).is_none());
     }
 
     #[test]
-    fn test_parse_profile_display_name_no_names_array() {
-        let body = serde_json::json!({ "names": "not-an-array" });
+    fn test_parse_profile_display_name_name_not_string() {
+        let body = serde_json::json!({ "sub": "x", "name": 42 });
         assert!(parse_profile_display_name(&body).is_none());
     }
 
