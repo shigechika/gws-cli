@@ -96,6 +96,9 @@ Bug reports and feature requests that targeted upstream's MCP server (closed whe
 | [#251](https://github.com/googleworkspace/cli/issues/251) — Dynamic `--upload` accepts unsafe absolute/traversal paths | Fixed | MCP `upload` argument rejects absolute paths and `..` components |
 | [#260](https://github.com/googleworkspace/cli/issues/260) — Tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) | Partial | Annotations derived from HTTP method are now attached to every tool. `tool_search` meta-tool and pagination from the original proposal are not yet ported |
 | [#642](https://github.com/googleworkspace/cli/issues/642) — `parse_message_headers` case-sensitive match drops CC/headers with non-canonical casing | Fixed | Normalized header names to lowercase before matching, so `"CC"` from Exchange/Outlook, `"from"` lowercase, etc. are all recognized per RFC 5322 §1.2.2 |
+| [#573](https://github.com/googleworkspace/cli/issues/573) — `metadataHeaders` array not expanded as repeated query params in `gmail.users.messages.get` | Fixed | Discovery parser preserves `repeated: true` (`discovery.rs`), and the executor expands JSON array values into multiple query entries (`executor.rs`). Discovery-driven MCP tools inherit the same behavior |
+| [#625](https://github.com/googleworkspace/cli/issues/625) — `script` service not registered in `services.rs` (helper unreachable) | Fixed | `ServiceEntry { aliases: &["script"], api_name: "script", version: "v1", ... }` is registered, so `gws script ...` and MCP `script_*` tools resolve correctly |
+| [#717](https://github.com/googleworkspace/cli/issues/717) — `gws auth status` prints non-JSON to stdout, breaking `jq` pipelines | Fixed | `Using keyring backend: <name>` is emitted via `eprintln!` to stderr (`credential_store.rs`), so `gws auth status \| jq .` parses cleanly |
 
 ## Upstream MCP timeline
 
