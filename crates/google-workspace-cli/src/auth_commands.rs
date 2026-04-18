@@ -930,7 +930,7 @@ fn run_discovery_scope_picker(
     relevant_scopes: &[crate::setup::DiscoveredScope],
     services_filter: Option<&HashSet<String>>,
 ) -> Option<Vec<String>> {
-    use crate::setup::{ScopeClassification, PLATFORM_SCOPE};
+    use crate::setup::ScopeClassification;
     use crate::setup_tui::{PickerResult, SelectItem};
 
     let mut recommended_scopes = vec![];
@@ -1102,10 +1102,12 @@ fn run_discovery_scope_picker(
                 }
             }
 
-            // Always include cloud-platform scope
-            if !selected.contains(&PLATFORM_SCOPE.to_string()) {
-                selected.push(PLATFORM_SCOPE.to_string());
-            }
+            // Do not auto-inject cloud-platform. It is a restricted scope that
+            // some Workspace orgs block via admin policy, which would cause
+            // `admin_policy_enforced` login failures for users who picked
+            // narrower scopes (upstream #562). Users who need cloud-platform
+            // (e.g. for the modelarmor helper) can tick it in the picker or
+            // pass `--full` / `--scopes https://www.googleapis.com/auth/cloud-platform`.
 
             // Hierarchical dedup: if we have both a broad scope (e.g. `.../auth/drive`)
             // and a narrower scope (e.g. `.../auth/drive.metadata`, `.../auth/drive.readonly`),
@@ -1789,6 +1791,34 @@ mod tests {
     fn resolve_scopes_full_returns_full_scopes() {
         let scopes = run_resolve_scopes(ScopeMode::Full, None);
         assert_eq!(scopes.len(), FULL_SCOPES.len());
+    }
+
+    /// `DEFAULT_SCOPES` must not include cloud-platform: it is a restricted
+    /// scope that some Workspace admin policies block, and the login flow
+    /// relies on this invariant to avoid `admin_policy_enforced` errors
+    /// for users who did not opt in (upstream #562).
+    #[test]
+    fn default_scopes_does_not_include_cloud_platform() {
+        for scope in DEFAULT_SCOPES {
+            assert!(
+                !scope.contains("cloud-platform"),
+                "DEFAULT_SCOPES must not include cloud-platform (upstream #562): {}",
+                scope
+            );
+        }
+    }
+
+    /// `FULL_SCOPES` is the opt-in path for users who do want cloud-platform
+    /// (e.g. for the modelarmor helper). Keep this invariant so we don't
+    /// accidentally remove the only non-custom entry point that includes it.
+    #[test]
+    fn full_scopes_includes_cloud_platform() {
+        assert!(
+            FULL_SCOPES
+                .iter()
+                .any(|s| *s == "https://www.googleapis.com/auth/cloud-platform"),
+            "FULL_SCOPES must include cloud-platform as the opt-in entry point"
+        );
     }
 
     #[test]
