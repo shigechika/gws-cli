@@ -169,6 +169,7 @@ fn process_file(path: &Path) -> Result<Option<serde_json::Value>, GwsError> {
             filename.trim_end_matches(".js").trim_end_matches(".gs"),
         ),
         "html" => ("HTML", filename.trim_end_matches(".html")),
+        // Only `appsscript.json` is uploaded as JSON; other .json files fall through to `_` below.
         "json" if filename == "appsscript.json" => ("JSON", "appsscript"),
         _ => return Ok(None),
     };
